@@ -1,6 +1,6 @@
 # Orchestrator
 
-Portable dual-phase orchestration package that generalizes the native Antigravity Orchestrator workflow across models and client harnesses by pairing a planning Trunk Session with client-native Execution Subagents through Living Memory Window inheritance.
+Dual-phase orchestration package optimized in V1 for Antigravity single-model sessions (with a reserved adapter seam for future client harnesses) that pairs a planning `Trunk Session` with a bound native `Execution Subagent` through `Living Memory Window` inheritance.
 
 ## Language
 
@@ -9,7 +9,7 @@ The primary user-facing conversation operating in logical Plan Mode, responsible
 _Avoid_: Coordinator, router, wrapper
 
 **Execution Subagent**:
-A client-native subagent attached to a Trunk Session that inherits its `Living Memory Window`, executes `<plan>` steps in single-phase Execution Mode, and returns structured execution `<report>`s.
+A client-native subagent attached to a `Trunk Session` that inherits its `Living Memory Window`, executes `<plan>` steps in single-phase Execution Mode, and returns structured execution `<report>`s.
 _Avoid_: Isolated Subagent, background daemon, peer worker
 
 **Isolated Subagent**:
@@ -17,5 +17,5 @@ A fresh-context subagent intentionally spawned without `Living Memory Window` in
 _Avoid_: Execution Subagent, Right Brain
 
 **Living Memory Window**:
-The active, compaction-bounded span of canonical Trunk Session dialogue, compaction summaries, and prior execution `<report>`s currently visible to the Trunk model, inherited on Execution Subagent creation and extended incrementally until the next Trunk compaction.
+The active, compaction-bounded span of canonical `Trunk Session` dialogue, compaction summaries, and prior execution `<report>`s currently visible to the Trunk model, inherited on `Execution Subagent` creation and extended incrementally until the next Trunk compaction.
 _Avoid_: Full raw history, hand-written summary

@@ -10,6 +10,6 @@ Extract the complete underlying Official Orchestrator system (Planning Mode, `ex
 ## Answer
 
 Completed:
-- Complete 9-part official baseline recorded in [01-official-orchestrator-system.md](../../docs/research/01-official-orchestrator-system.md).
-- Prior exploratory discussions and verified host storage/probe data archived as non-binding context in [02-exploratory-notes-and-host-probes.md](../../docs/research/02-exploratory-notes-and-host-probes.md).
+- Complete 9-part official baseline recorded in [01-official-orchestrator-system.md](../../../docs/research/01-official-orchestrator-system.md).
+- Prior exploratory discussions and verified host storage/probe data archived as non-binding context in [02-exploratory-notes-and-host-probes.md](../../../docs/research/02-exploratory-notes-and-host-probes.md).
 - `GLOSSARY.md` and `docs/adr/` reset clean so only Occam-converged final decisions are recorded going forward.
