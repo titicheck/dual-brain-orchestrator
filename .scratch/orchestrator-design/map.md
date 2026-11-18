@@ -20,10 +20,9 @@ A minimal, Occam's-razor specification (`.scratch/orchestrator-v1/spec.md`) and 
 - [Occam's-Razor Adaptation from Same-Thread Hot-Swap to Native Subagent Interop](issues/02-occam-adaptation-to-native-subagents.md): Locked the 3 minimal surgical adaptations—client-native subagents, `CHECKPOINT`-bounded Living Memory Window inheritance + incremental continuation + compaction-synced rotation ([ADR-0002](../../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md)), and unified `<report>` return into Official `[plan review]` ([ADR-0001](../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md)).
 - [Activation Modes, Coexistence Boundaries, and Package Structure](issues/03-activation-coexistence-and-packaging.md): Locked dual-mode activation + unified `orchestrator` package layout ([ADR-0003](../../docs/adr/0003-dual-mode-plugin-rule-and-unified-orchestrator-package.md)) and native deference, `[Message] sender=...` subagent non-recursion, zero-memory `Isolated Subagent` passthrough, and `Execution Subagent` foreman delegation with single-depth fallback ([ADR-0004](../../docs/adr/0004-coexistence-boundaries-and-foreman-subagent-delegation.md)).
 
-## Not yet specified
+## Synthesized Specification
 
-- Minimal prototype check if any adapted interop mechanic remains empirically unproven after Ticket `02`.
-- End-to-end compliance test scenarios (`writing-skills`) once V1 `SKILL.md` is authored.
+- [Orchestrator V1 Specification](../orchestrator-v1/spec.md) (`Status: ready-for-agent`): Complete V1 feature specification synthesized from [01-official-orchestrator-system.md](../../docs/research/01-official-orchestrator-system.md), [GLOSSARY.md](../../GLOSSARY.md), and `ADR-0001`–`ADR-0004`.
 
 ## Out of scope
 
