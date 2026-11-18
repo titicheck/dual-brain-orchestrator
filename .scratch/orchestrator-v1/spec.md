@@ -35,7 +35,8 @@ Deliver a portable, unified `orchestrator` plugin and skill package derived dire
 21. As a developer running standalone blind reviews (such as multi-persona design audits or two-axis code reviews), I want the `Trunk Session` to stay in Plan Mode on my active main model and spawn `Isolated Subagents` with untouched default `inherit` model settings and zero `Living Memory Window` injection, so that blind reviewers evaluate targets unbiased on my top-tier model.
 22. As a developer issuing a combined prompt to "implement X and then run a deep review", I want the `Trunk Session` to dispatch only the implementation steps in `<plan>` to the `Execution Subagent` and then launch the heavyweight review directly from the `Trunk Session` upon `[plan review]` return (when the main model is active again), so that I get full main-model review quality in one seamless turn without manually splitting prompts or nesting reviewers under the execution model.
 23. As a developer executing parallel implementation slices inside an `Execution Subagent` on a host that supports nested subagents, I want nested workers spawned by the `Execution Subagent` with default `inherit` settings to naturally inherit and cap at the execution model, while single-depth harnesses cleanly hand back via Trigger #5 for `Trunk Session` dispatch.
-24. As a developer working across Antigravity, Claude Code, and Codex, I want the `orchestrator` skill to map onto each client's built-in subagent creation and continuation primitives through a clear harness adapter reference, so that one conceptual workflow operates portably across environments.
+24. As a developer working across Antigravity, Claude Code, and Codex, I want the `orchestrator` skill to map onto each client's built-in point-to-point subagent creation and continuation primitives through a clear harness adapter reference, so that one single state machine operates portably across environments.
+25. As a developer explicitly invoking `/swarm` for multi-agent message-board collaboration, I want `orchestrator` to yield silently without interposing an `Execution Subagent` and keep its global rule inert inside board-woken member sessions, so that `/swarm` operates natively on its shared board without collision.
 
 ## Implementation Decisions
 
@@ -49,8 +50,8 @@ Deliver a portable, unified `orchestrator` plugin and skill package derived dire
 - The always-on routing rule must stay concise (well within the host's 24,000-byte per-file rule cap and shared rules token budget), containing only scope guards and a pointer instructing qualifying sessions to follow the `orchestrator` skill protocol.
 
 ### 2. Scope Guards, Native Deference, and Subagent Non-Recursion
-- **Native Orchestrator Deference**: Before engaging cross-session orchestration under the global routing rule, the agent checks its available tool declarations. If native same-thread phase-transition tools (`exit_plan_mode` or `enter_plan_mode`) are present, the global rule yields silently to the host's native Orchestrator unless the user explicitly invokes `/orchestrator`.
-- **Top-Level Human Session Guard (Zero Recursion)**: Because workspace and plugin rules propagate into child subagents running in the same workspace, the global routing rule activates **exclusively** when the session's initial turn is a direct human request (`<USER_REQUEST>` / `USER_INPUT`). Any session woken by an inter-agent `<SYSTEM_MESSAGE>` (`[Message] timestamp=... sender=<parent_uuid> ...`) or already operating under subagent role instructions treats the global routing rule as a strict no-op and executes its assigned task in single-phase mode.
+- **Native Orchestrator and `/swarm` Deference**: Before engaging cross-session orchestration under the global routing rule, the agent checks its active mode and tool declarations. If native same-thread phase-transition tools (`exit_plan_mode` or `enter_plan_mode`) are present, the global rule yields silently to the host's native Orchestrator unless the user explicitly invokes `/orchestrator`. Likewise, when the user explicitly invokes `/swarm` (or the session is actively managing a `/swarm` board), `orchestrator` yields silently without interposing an `Execution Subagent`.
+- **Top-Level Human Session Guard (Zero Recursion)**: Because workspace and plugin rules propagate into child subagents and board members running in the same workspace, the global routing rule activates **exclusively** when the session's initial turn is a direct human request (`<USER_REQUEST>` / `USER_INPUT`). Any session woken by an inter-agent `<SYSTEM_MESSAGE>` (`[Message] timestamp=... sender=<parent_uuid> ...`), woken by a `[swarm]` / `[board]` `@<member>` assignment, or already operating under subagent role instructions treats the global routing rule as a strict no-op and executes its assigned task in single-phase mode.
 
 ### 3. Official-First Two-Phase Protocol Fidelity
 - **Logical Plan Mode (`Trunk Session`)**:
@@ -141,7 +142,7 @@ Deliver a portable, unified `orchestrator` plugin and skill package derived dire
 
 ## Out of Scope
 
-- Swarm message-board multi-peer coordination modes (`/swarm`).
+- Maintaining a parallel `swarm`-based execution carrier alongside point-to-point native subagents (`ADR-0005`).
 - External headless CLI subprocess orchestration (`agy -p --conversation`).
 - Custom disk receipt schemas or `error_<seq>.md` dump formats duplicating host trajectory logs.
 - Persistent Node/HTTP UI sidecar panels or telemetry daemons.
@@ -149,5 +150,5 @@ Deliver a portable, unified `orchestrator` plugin and skill package derived dire
 
 ## Further Notes
 
-- Domain terminology follows the repository's `GLOSSARY` definitions (`Trunk Session`, `Execution Subagent`, `Isolated Subagent`, `Living Memory Window`), and architectural constraints reflect settled decisions `ADR-0001` through `ADR-0004` plus the verified 9-part Official Orchestrator baseline.
+- Domain terminology follows the repository's `GLOSSARY` definitions (`Trunk Session`, `Execution Subagent`, `Isolated Subagent`, `Living Memory Window`), and architectural constraints reflect settled decisions `ADR-0001` through `ADR-0005` plus the verified 9-part Official Orchestrator baseline.
 - Runtime orchestration behavior is completely decoupled from the local Markdown issue-tracking and ADR workflow used to author this repository.

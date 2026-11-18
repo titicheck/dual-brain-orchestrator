@@ -57,6 +57,21 @@ Tested with `--model gemini-4-hydrogen-high --mode auto` (`80404dda-4205-4c19-9d
 - **Headless Windows Permissions**: `--mode auto` fell back to `request-review` (`terminal sandbox is not available on this host`), auto-denying `write_file` unless `--dangerously-skip-permissions` or `settings.json` allow-rules are configured.
 - **Prefix Cache & Isolation**: Turn 2 reported `cache_read_tokens: 0` (`input_tokens: 13,895`), stored under `~/.gemini/antigravity-cli/` with `parentConversationId = ""`.
 
+### Probe C: Native `swarm` Tool (`1e336cab` Clean Worker vs `f84130e1` `fork: "coordinator"`) & Quota-Pool Telemetry
+
+Tested on `2026-11-18` under `8d058da7-262a-4ed6-8991-c3669ee786c0`:
+
+- **Probe C-Clean (`1e336cab-6d51-400c-9492-07e4ce9d5f1f`, `model: "gemini-4-hydrogen-high"` without `fork`)**:
+  - **Model Pinning & Latency**: Accurately resolved to `gemini-4-hydrogen` (`MODEL_PLACEHOLDER_M525`, 512k context, `API_PROVIDER_GOOGLE_GEMINI`). Turn 1 took `~16 s`; Turn 2 (`post_message` + `swarm_wait`) took `~26 s` (`SWARM_TURN1_OK_TURN2_OMEGA_772` verified) because every wakeup requires an extra LLM turn calling `read_board` before acting plus `post_message` + `swarm_wait` at exit (and board tools appear on the parent one turn after the initial `swarm add`).
+  - **Stripped `invoke_subagent` Toolset**: SQLite `tokenBreakdown` and live execution confirmed clean `swarm` workers do **not** receive `invoke_subagent`, `send_message`, `manage_subagents`, or `define_subagent` (`[blocked] invoke_subagent is not available in my tool declarations`), breaking skills such as `egm-review` or `code-review` inside a `swarm` worker.
+  - **Shared Board Namespace**: Occupies the parent conversation's single `.system_generated/swarm/{board.jsonl, members.json}` directory and injects `[swarm]` / `[board]` system notices.
+- **Probe C-Fork (`f84130e1-8763-4233-b584-8fb54472ae76`, `model: "gemini-4-hydrogen-high"` with `fork: "coordinator"`)**:
+  - **Model-Override Failure**: Although `members.json` recorded `"applied_model": "gemini-4-hydrogen-high"`, SQLite `gen_metadata` (`gen[220..221]`) proved execution actually ran on `MODEL_PLACEHOLDER_M667` (`gemini-pro-orchestrator` / `Orchestrator (Carbon)`), failing to offload from the parent planner model.
+  - **Uncached Raw-Tool Bloat**: Cloned all raw `GENERIC` tool outputs from `steps 417..595` (`287,882` Chat Messages tokens -> `296,734` uncached `inputTokens`, `312,580` `estimatedTokensUsed`), ~25x heavier than `Living Memory Window` Option B.
+- **Host Quota-Pool Sharing (`swarm{action: "models", all: true}`)**:
+  - `claude-opus-5-5-{low,medium,high}`, `claude-sonnet-5-5-{low,medium,high}`, and `gpt-oss-120b-medium` reported identical `quota_remaining: "86%"` and identical `quota_resets: "2026-11-18T10:12:20Z"` (shared third-party quota pool).
+  - All `gemini-4-*` and `gemini-3.8-flash-*` models reported identical `quota_remaining: "47%"` and `quota_resets: "2026-11-18T11:39:03Z"` (separate Google Gemini quota pool), confirming that `invoke_subagent`'s `"flash"` / `"pro"` / `"flash_lite"` tiers already cover 100% of genuine cross-pool quota offloading.
+
 ---
 
 ## 4. Verified Cross-Harness Native Subagent Matrix

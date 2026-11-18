@@ -9,7 +9,7 @@ A minimal, Occam's-razor specification (`.scratch/orchestrator-v1/spec.md`) and 
 ## Notes
 
 - Authoritative official baseline: [Official Orchestrator Underlying System Baseline](../../docs/research/01-official-orchestrator-system.md).
-- Settled domain model & decisions: [GLOSSARY.md](../../GLOSSARY.md), [ADR-0001](../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md), [ADR-0002](../../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md), [ADR-0003](../../docs/adr/0003-dual-mode-plugin-rule-and-unified-orchestrator-package.md), and [ADR-0004](../../docs/adr/0004-coexistence-boundaries-and-foreman-subagent-delegation.md).
+- Settled domain model & decisions: [GLOSSARY.md](../../GLOSSARY.md), [ADR-0001](../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md), [ADR-0002](../../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md), [ADR-0003](../../docs/adr/0003-dual-mode-plugin-rule-and-unified-orchestrator-package.md), [ADR-0004](../../docs/adr/0004-coexistence-boundaries-and-foreman-subagent-delegation.md), and [ADR-0005](../../docs/adr/0005-universal-native-subagent-carrier-and-swarm-deference.md).
 - Non-binding exploratory history & host measurements: [Exploratory Discussions and Host Empirical Probes](../../docs/research/02-exploratory-notes-and-host-probes.md).
 - Skills to consult: `grilling`, `domain-modeling`, `prototype`, and `writing-for-agents`.
 - Standing preferences: Pure English repository files; preserve Official Orchestrator wording and behavior everywhere thread separation does not force a change; resolve one ticket at a time.
@@ -22,7 +22,7 @@ A minimal, Occam's-razor specification (`.scratch/orchestrator-v1/spec.md`) and 
 
 ## Synthesized Specification
 
-- [Orchestrator V1 Specification](../orchestrator-v1/spec.md) (`Status: ready-for-agent`): Complete V1 feature specification synthesized from [01-official-orchestrator-system.md](../../docs/research/01-official-orchestrator-system.md), [GLOSSARY.md](../../GLOSSARY.md), and `ADR-0001`–`ADR-0004`.
+- [Orchestrator V1 Specification](../orchestrator-v1/spec.md) (`Status: ready-for-agent`): Complete V1 feature specification synthesized from [01-official-orchestrator-system.md](../../docs/research/01-official-orchestrator-system.md), [GLOSSARY.md](../../GLOSSARY.md), and `ADR-0001`–`ADR-0005`.
 
 ## Out of scope
 
