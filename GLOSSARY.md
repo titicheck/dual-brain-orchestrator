@@ -13,7 +13,7 @@ A client-native subagent attached to a `Trunk Session` that inherits its `Living
 _Avoid_: Isolated Subagent, background daemon, peer worker
 
 **Isolated Subagent**:
-A fresh-context subagent intentionally spawned without `Living Memory Window` inheritance (such as blind review personas in EGM) so it evaluates targets without parent conversation bias.
+A fresh-context subagent intentionally spawned without `Living Memory Window` inheritance (such as blind review personas in Elephant-Goldfish Model (EGM)) so it evaluates targets without parent conversation bias.
 _Avoid_: Execution Subagent, Right Brain
 
 **Living Memory Window**:
