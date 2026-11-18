@@ -9,6 +9,7 @@ A minimal, Occam's-razor specification (`.scratch/orchestrator-v1/spec.md`) and 
 ## Notes
 
 - Authoritative official baseline: [Official Orchestrator Underlying System Baseline](../../docs/research/01-official-orchestrator-system.md).
+- Settled architectural decisions: [Unified Subagent Report Return into Official Plan Review](../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md) (`docs/adr/`).
 - Non-binding exploratory history & host measurements: [Exploratory Discussions and Host Empirical Probes](../../docs/research/02-exploratory-notes-and-host-probes.md).
 - Domain docs (`GLOSSARY.md`, `docs/adr/`) start empty and are populated lazily only as decisions are finalized under Occam's Razor.
 - Skills to consult: `grilling`, `domain-modeling`, `prototype`, and `writing-for-agents`.
