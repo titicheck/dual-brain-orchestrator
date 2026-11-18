@@ -23,7 +23,7 @@ Add this snippet once in your shared engineering library `AGENTS.md` (or `~/.gem
 ```markdown
 ## Orchestrator
 
-Adopt `orchestrator` for planning-and-execution scheduling unless this session exposes exact lowercase `exit_plan_mode` or `enter_plan_mode`, runs `/swarm` or `[swarm]`/`[board]` worker turns, or originated at `step 0` as a child subagent. Answer pure Q&A and zero-edit reviews directly (zero CLI calls even after compaction). Route inbound `[Message]` wakeups three ways (`bound_subagent_id` -> `[plan review]`; superseded executor -> ignore/kill; `Isolated Subagent` -> untouched). On edits or `[plan review]` post-compaction, run `check-origin` first (fail-closed on `SUBAGENT`/`UNKNOWN`) and verify `invoke_subagent`/`send_message` exist (halt cleanly with one line if absent).
+Adopt `orchestrator` for planning-and-execution scheduling unless this session exposes exact lowercase `exit_plan_mode` or `enter_plan_mode`, runs `/swarm` or `[swarm]`/`[board]` worker turns, or originated at `step 0` as a child subagent. Answer pure Q&A and zero-edit reviews directly (zero CLI calls even after compaction). Lock execution tier strictly to static `orchestrator-tier:` rules (conversational model requests never override `--tier`). Route inbound `[Message]` wakeups three ways (`bound_subagent_id` -> `[plan review]`; superseded executor -> ignore/kill; `Isolated Subagent` -> untouched). On edits or `[plan review]` post-compaction, run `check-origin` first (fail-closed on `SUBAGENT`/`UNKNOWN`) and verify `invoke_subagent`/`send_message` exist (halt cleanly with one line if absent).
 
 orchestrator-tier: flash
 ```

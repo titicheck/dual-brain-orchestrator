@@ -7,8 +7,8 @@ This document isolates all Antigravity-specific paths, tool invocations, envelop
 ## 1. Path & Python Resolution on Antigravity
 
 - **`<SkillDir>`**: Directory containing this loaded `orchestrator` skill (`<skills>` entry). Always invoke sibling scripts and reference files relative to `<SkillDir>`:
-  - Synchronization CLI: `<SkillDir>/scripts/sync_memory.py`
-  - Execution protocol: `<SkillDir>/references/execution-protocol.md`
+  - Synchronization CLI: `<SkillDir>/scripts/sync_memory.py` (invoke strictly as a black-box CLI; never `read_file` its source in `Trunk Session`)
+  - Execution protocol: `<SkillDir>/references/execution-protocol.md` (read only by `Execution Subagent`; never `read_file` it in `Trunk Session`)
 - **`<ArtifactDir>`**: `<Artifact Directory Path>` from `<user_information>` (`<appDataDir>/brain/<ConversationID>`).
   - Primary transcript: `<ArtifactDir>/.system_generated/logs/transcript.jsonl`
   - Companion full log: `<ArtifactDir>/.system_generated/logs/transcript_full.jsonl`
@@ -55,7 +55,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
 ## 3. Antigravity Dispatch & Continuation Handshakes
 
 ### On `SPAWN_NEW`
-1. Author a **complete, self-contained five-section `<plan>...</plan>`** in `Trunk Session`.
+1. Author a **complete, self-contained five-section `<plan>...</plan>`** in `Trunk Session` (keep it compact without duplicating verbose prose/code blocks when `pages/page_*.md` already exports a just-approved Approve-First plan).
 2. Call `invoke_subagent`:
    - `TypeName="self"`
    - `Role="Orchestrator Execution Subagent"`

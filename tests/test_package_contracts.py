@@ -8,6 +8,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL_MD = REPO_ROOT / "skills" / "orchestrator" / "SKILL.md"
+HARNESSES_MD = REPO_ROOT / "skills" / "orchestrator" / "references" / "harnesses.md"
 PLUGIN_JSON = REPO_ROOT / "plugin.json"
 README_MD = REPO_ROOT / "README.md"
 
@@ -79,6 +80,51 @@ class PackageContractTests(unittest.TestCase):
         tier_blocks = [b for b in fenced if "orchestrator-tier:" in b]
         self.assertTrue(tier_blocks, "README must contain a copyable orchestrator-tier: snippet")
         for block in tier_blocks:
+            self.assertLess(len(block.encode("utf-8")), 1000)
+
+    def test_trunk_efficiency_and_tier_precedence_guards(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("except conversational", skill_text.lower())
+        self.assertRegex(
+            skill_text,
+            re.compile(
+                r"never[^\n]*read_file[^\n]*sync_memory\.py[^\n]*execution-protocol\.md",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertRegex(
+            skill_text,
+            re.compile(r"git status --short[^\n]*git diff --stat"),
+        )
+        self.assertRegex(
+            skill_text,
+            re.compile(r"do \*\*not\*\* re-read[^\n]*re-run", re.IGNORECASE),
+        )
+        self.assertRegex(
+            skill_text.split("## `Trunk Session` Planning Turn", 1)[1],
+            re.compile(r"compact[^\n]*Approve-First|Approve-First[^\n]*compact", re.IGNORECASE),
+        )
+
+        harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
+        self.assertRegex(
+            harnesses_text,
+            re.compile(r"sync_memory\.py[^\n]*never[^\n]*read_file", re.IGNORECASE),
+        )
+        self.assertRegex(
+            harnesses_text,
+            re.compile(r"execution-protocol\.md[^\n]*never[^\n]*read_file", re.IGNORECASE),
+        )
+
+        readme_text = README_MD.read_text(encoding="utf-8")
+        fenced = re.findall(r"```(?:markdown|md|text)?\r?\n(.*?)\r?\n```", readme_text, re.DOTALL)
+        adoption_blocks = [
+            b for b in fenced if "## Orchestrator" in b and "orchestrator-tier:" in b
+        ]
+        self.assertTrue(adoption_blocks)
+        for block in adoption_blocks:
+            lower = block.lower()
+            self.assertIn("conversational", lower)
+            self.assertIn("never override", lower)
             self.assertLess(len(block.encode("utf-8")), 1000)
 
     def test_relative_markdown_links_and_repo_hygiene(self) -> None:
