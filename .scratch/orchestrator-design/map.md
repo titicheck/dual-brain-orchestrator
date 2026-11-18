@@ -9,7 +9,7 @@ A minimal, Occam's-razor specification (`.scratch/orchestrator-v1/spec.md`) and 
 ## Notes
 
 - Authoritative official baseline: [Official Orchestrator Underlying System Baseline](../../docs/research/01-official-orchestrator-system.md).
-- Settled domain model & decisions: [GLOSSARY.md](../../GLOSSARY.md), [ADR-0001](../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md), and [ADR-0002](../../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md).
+- Settled domain model & decisions: [GLOSSARY.md](../../GLOSSARY.md), [ADR-0001](../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md), [ADR-0002](../../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md), and [ADR-0003](../../docs/adr/0003-dual-mode-plugin-rule-and-unified-orchestrator-package.md).
 - Non-binding exploratory history & host measurements: [Exploratory Discussions and Host Empirical Probes](../../docs/research/02-exploratory-notes-and-host-probes.md).
 - Skills to consult: `grilling`, `domain-modeling`, `prototype`, and `writing-for-agents`.
 - Standing preferences: Pure English repository files; preserve Official Orchestrator wording and behavior everywhere thread separation does not force a change; resolve one ticket at a time.
