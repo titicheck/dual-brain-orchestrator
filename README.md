@@ -8,7 +8,7 @@ Dual-phase Plan and Execute orchestration for **Antigravity single-model session
 
 `orchestrator` ships **only** a root [plugin.json](plugin.json) and the self-contained skill under [skills/orchestrator/](skills/orchestrator/SKILL.md)—with zero bundled `rules/`, startup hooks, persistent sidecars, or non-Antigravity manifest directories in V1.
 
-- **As an Antigravity Pure-Skill Plugin**: Install/register this repository directory as the `orchestrator` plugin.
+- **As an Antigravity Pure-Skill Plugin**: Clone directly into your Antigravity plugins directory (`git clone https://github.com/titicheck/dual-brain-orchestrator.git ~/.gemini/config/plugins/orchestrator`) or run `agy plugin install <path>`.
 - **As a Standalone Skill**: Symlink or copy `skills/orchestrator` into your Antigravity skills folder.
 - **Zero-Config Chat Invocation**: Type `/orchestrator` directly in any unconfigured Antigravity chat bar to run the exact same unified workflow on built-in default `flash`.
 
