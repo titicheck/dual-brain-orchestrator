@@ -44,7 +44,7 @@ class CliArgumentParser(argparse.ArgumentParser):
 
 
 def normalize_lf(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\r\n", "\n")
 
 
 def _is_strict_int(value: Any) -> bool:
@@ -229,56 +229,64 @@ def _clean_additional_metadata(body: str) -> str:
     return "\n".join(kept).strip()
 
 
+_OUTER_ENVELOPE_TAGS = ("<USER_SETTINGS_CHANGE>", "<ADDITIONAL_METADATA>")
+
+
+def _pop_leading_envelope(text: str) -> tuple[str, bool, str] | None:
+    stripped = text.lstrip()
+    for open_tag in _OUTER_ENVELOPE_TAGS:
+        if not stripped.startswith(open_tag):
+            continue
+        close_tag = f"</{open_tag[1:]}"
+        close_idx = stripped.find(close_tag)
+        if close_idx == -1:
+            return None
+        inner = stripped[len(open_tag) : close_idx]
+        rest = stripped[close_idx + len(close_tag) :]
+        cleaned = (
+            _clean_additional_metadata(inner)
+            if open_tag == "<ADDITIONAL_METADATA>"
+            else ""
+        )
+        return rest, open_tag == "<ADDITIONAL_METADATA>", cleaned
+    return None
+
+
+def _pop_trailing_envelope(text: str) -> tuple[str, bool, str] | None:
+    stripped = text.rstrip()
+    for open_tag in _OUTER_ENVELOPE_TAGS:
+        close_tag = f"</{open_tag[1:]}"
+        if not stripped.endswith(close_tag):
+            continue
+        end_inner = len(stripped) - len(close_tag)
+        open_idx = stripped.rfind(open_tag, 0, end_inner)
+        if open_idx == -1 or stripped.rfind(close_tag, open_idx, end_inner) != -1:
+            return None
+        inner = stripped[open_idx + len(open_tag) : end_inner]
+        cleaned = (
+            _clean_additional_metadata(inner)
+            if open_tag == "<ADDITIONAL_METADATA>"
+            else ""
+        )
+        return stripped[:open_idx], open_tag == "<ADDITIONAL_METADATA>", cleaned
+    return None
+
+
 def extract_user_input(raw_content: str) -> str:
     """Strip outer envelopes structurally while preserving non-timestamp metadata."""
     text = normalize_lf(raw_content)
     leading_meta: list[str] = []
     trailing_meta_rev: list[str] = []
 
-    while True:
-        stripped = text.lstrip()
-        if stripped.startswith("<USER_SETTINGS_CHANGE>"):
-            close_idx = stripped.find("</USER_SETTINGS_CHANGE>")
-            if close_idx == -1:
-                break
-            text = stripped[close_idx + len("</USER_SETTINGS_CHANGE>") :]
-        elif stripped.startswith("<ADDITIONAL_METADATA>"):
-            close_idx = stripped.find("</ADDITIONAL_METADATA>")
-            if close_idx == -1:
-                break
-            inner = stripped[len("<ADDITIONAL_METADATA>") : close_idx]
-            cleaned = _clean_additional_metadata(inner)
-            if cleaned:
-                leading_meta.append(cleaned)
-            text = stripped[close_idx + len("</ADDITIONAL_METADATA>") :]
-        else:
-            break
+    while (popped := _pop_leading_envelope(text)) is not None:
+        text, _, cleaned = popped
+        if cleaned:
+            leading_meta.append(cleaned)
 
-    while True:
-        stripped = text.rstrip()
-        if stripped.endswith("</USER_SETTINGS_CHANGE>"):
-            open_tag = "<USER_SETTINGS_CHANGE>"
-            close_tag = "</USER_SETTINGS_CHANGE>"
-            end_inner = len(stripped) - len(close_tag)
-            open_idx = stripped.rfind(open_tag, 0, end_inner)
-            if open_idx == -1 or stripped.rfind(close_tag, open_idx, end_inner) != -1:
-                break
-            text = stripped[:open_idx]
-        elif stripped.endswith("</ADDITIONAL_METADATA>"):
-            open_tag = "<ADDITIONAL_METADATA>"
-            close_tag = "</ADDITIONAL_METADATA>"
-            end_inner = len(stripped) - len(close_tag)
-            open_idx = stripped.rfind(open_tag, 0, end_inner)
-            if open_idx == -1 or stripped.rfind(close_tag, open_idx, end_inner) != -1:
-                break
-            cleaned = _clean_additional_metadata(
-                stripped[open_idx + len(open_tag) : end_inner]
-            )
-            if cleaned:
-                trailing_meta_rev.append(cleaned)
-            text = stripped[:open_idx]
-        else:
-            break
+    while (popped := _pop_trailing_envelope(text)) is not None:
+        text, _, cleaned = popped
+        if cleaned:
+            trailing_meta_rev.append(cleaned)
 
     core = text.strip()
     if core.startswith("<USER_REQUEST>") and core.endswith("</USER_REQUEST>"):
@@ -479,8 +487,7 @@ def extract_system_report(
 
 
 def render_page(page_num: int, chunks: list[str]) -> str:
-    width = max(3, len(str(page_num)))
-    header = f"# Living Memory Window — Page {page_num:0{width}d}\n\n"
+    header = f"# Living Memory Window — Page {page_num:03d}\n\n"
     return header + "\n\n---\n\n".join(chunks) + "\n"
 
 
@@ -696,8 +703,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         rendered_pages = paginate_blocks(blocks)
         pages_dir.mkdir(parents=True, exist_ok=True)
         for page_num, rendered in enumerate(rendered_pages, start=1):
-            width = max(3, len(str(page_num)))
-            page_file = (pages_dir / f"page_{page_num:0{width}d}.md").resolve()
+            page_file = (pages_dir / f"page_{page_num:03d}.md").resolve()
             atomic_write_text(page_file, rendered)
             page_paths.append(str(page_file))
 
@@ -720,6 +726,13 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def _retire_bound_id(
+    state: dict[str, Any], bound_id: str, retire_through: int
+) -> None:
+    retired = state["retired_subagent_max_step"]
+    retired[bound_id] = max(retired.get(bound_id, -1), retire_through)
+
+
 def cmd_bind(args: argparse.Namespace) -> int:
     subagent_id = args.subagent_id.strip()
     if not subagent_id:
@@ -732,8 +745,7 @@ def cmd_bind(args: argparse.Namespace) -> int:
     pending = state["pending_sync"]
     prev_id = state["bound_subagent_id"]
     if prev_id is not None and prev_id != subagent_id:
-        retired = state["retired_subagent_max_step"]
-        retired[prev_id] = max(retired.get(prev_id, -1), pending["synced_through"])
+        _retire_bound_id(state, prev_id, pending["synced_through"])
 
     state["bound_subagent_id"] = subagent_id
     state["bound_tier"] = pending["tier"]
@@ -773,9 +785,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
             if state["pending_sync"] is not None
             else -1
         )
-        retire_through = max(state["last_synced_step"], pending_step)
-        retired = state["retired_subagent_max_step"]
-        retired[prev_id] = max(retired.get(prev_id, -1), retire_through)
+        _retire_bound_id(state, prev_id, max(state["last_synced_step"], pending_step))
 
     state["bound_subagent_id"] = None
     state["bound_tier"] = "flash"

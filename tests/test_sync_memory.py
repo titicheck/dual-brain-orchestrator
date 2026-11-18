@@ -217,7 +217,8 @@ class Slice2PreMutationAndLifecycleTests(unittest.TestCase):
             # bind before pending_sync -> exit 1
             self.assertEqual(run_cli("bind", "--state-dir", str(state_dir), "--subagent-id", "sub-1").returncode, 1)
 
-            # Turn 1 missing transcript -> SPAWN_NEW + cleans stale page
+            # Turn 1 missing / partial-EOF-only transcript -> SPAWN_NEW + cleans stale page
+            write_jsonl(transcript_path, [], trailing_raw='{"step_index": 0, "type": "USER')
             s1 = run_cli("sync", "--transcript", str(transcript_path), "--state-dir", str(state_dir))
             self.assertEqual(s1.returncode, 0, s1.stderr)
             out1 = json.loads(s1.stdout)
@@ -226,6 +227,18 @@ class Slice2PreMutationAndLifecycleTests(unittest.TestCase):
             self.assertEqual(out1["prefix_digest"], "")
             self.assertTrue(out1["delta_empty"])
             self.assertFalse((state_dir / "pages" / "page_999.md").exists())
+            transcript_path.unlink()
+
+            # Valid no-newline EOF transcript on fresh sync still reads all records cleanly
+            with open(transcript_path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "NoEOF"}))
+            s1_no_eol = run_cli("sync", "--transcript", str(transcript_path), "--state-dir", str(state_dir))
+            self.assertEqual(s1_no_eol.returncode, 0, s1_no_eol.stderr)
+            self.assertEqual(json.loads(s1_no_eol.stdout)["synced_through"], 0)
+            transcript_path.unlink()
+
+            # Turn 1 missing transcript under valid artifact dir -> SPAWN_NEW + bind
+            self.assertEqual(run_cli("sync", "--transcript", str(transcript_path), "--state-dir", str(state_dir)).returncode, 0)
 
             b1 = run_cli("bind", "--state-dir", str(state_dir), "--subagent-id", "sub-1")
             self.assertEqual(b1.returncode, 0, b1.stderr)
@@ -378,13 +391,13 @@ class Slice3DigestCompanionAndCompactionTests(unittest.TestCase):
             self.assertEqual(o3["action"], "SPAWN_NEW")
             self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-2").returncode, 0)
 
-            # New CHECKPOINT epoch at step 4 -> SPAWN_NEW seeded from [4..5]
+            # New CHECKPOINT epoch with CRLF at step 4 -> SPAWN_NEW LF-only seeded from [4..5]
             write_jsonl(
                 t_path,
                 [
                     {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "<USER_REQUEST>\n\u5b9e\u73b0\u6838\u5fc3\n</USER_REQUEST>"},
                     {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "\u6539\u9053\u65b9\u6848"},
-                    {"step_index": 4, "type": "CHECKPOINT", "created_at": "t4", "content": "# Resuming from a compaction\nSummary body"},
+                    {"step_index": 4, "type": "CHECKPOINT", "created_at": "t4", "content": "# Resuming from a compaction\r\nSummary body\r\nLine2"},
                     {"step_index": 5, "type": "USER_INPUT", "created_at": "t5", "content": "<USER_REQUEST>\nPost ckpt task\n</USER_REQUEST>"},
                 ],
             )
@@ -392,8 +405,10 @@ class Slice3DigestCompanionAndCompactionTests(unittest.TestCase):
             o4 = json.loads(p4.stdout)
             self.assertEqual(o4["action"], "SPAWN_NEW")
             self.assertEqual(o4["checkpoint_step"], 4)
-            txt4 = pathlib.Path(o4["pages"][0]).read_text(encoding="utf-8")
-            self.assertIn("Summary body", txt4)
+            raw4 = pathlib.Path(o4["pages"][0]).read_bytes()
+            self.assertNotIn(b"\r", raw4)
+            txt4 = raw4.decode("utf-8")
+            self.assertIn("Summary body\nLine2", txt4)
             self.assertIn("Post ckpt task", txt4)
             self.assertNotIn("\u5b9e\u73b0\u6838\u5fc3", txt4)
 
@@ -436,12 +451,42 @@ class Slice3DigestCompanionAndCompactionTests(unittest.TestCase):
             self.assertIn("EXPANDED_FULL_REPLY", page_txt)
             self.assertNotIn("STALE_PRE_REWIND", page_txt)
 
+            # Created_at mismatch on shifted/lagged companion fallback rejects stale tool_calls & content -> SPAWN_NEW
+            write_jsonl(
+                c_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Init"},
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0_dup", "content": "Init"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1_old", "content": "STALE_TS", "tool_calls": [{"id": "sub-toolcall"}]},
+                ],
+            )
+            p_ts_mismatch = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(json.loads(p_ts_mismatch.stdout)["action"], "SPAWN_NEW")
+            self.assertNotIn("STALE_TS", pathlib.Path(json.loads(p_ts_mismatch.stdout)["pages"][0]).read_text(encoding="utf-8"))
+
+            # Expanded GENERIC record (truncated_fields: ["content"]) restores bound_subagent_id -> RESUME_EXISTING
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Init"},
+                    {"step_index": 1, "type": "GENERIC", "created_at": "t1g", "content": "Created...", "truncated_fields": ["content"]},
+                ],
+            )
+            write_jsonl(
+                c_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Init"},
+                    {"step_index": 1, "type": "GENERIC", "created_at": "t1g", "content": 'Created {"conversationId": "sub-toolcall"}'},
+                ],
+            )
+            self.assertEqual(json.loads(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).stdout)["action"], "RESUME_EXISTING")
+
             # If Turn 1 was rewound so sub-id is absent even after companion expansion -> SPAWN_NEW
             write_jsonl(
                 c_path,
                 [
                     {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Init"},
-                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1_new", "content": "OTHER_BRANCH", "tool_calls": []},
+                    {"step_index": 1, "type": "GENERIC", "created_at": "t1g", "content": "OTHER_BRANCH"},
                 ],
             )
             p_rewound = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
