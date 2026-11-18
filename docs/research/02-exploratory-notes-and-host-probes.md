@@ -68,3 +68,15 @@ Derived from installed harness reference docs (`egm/docs/harnesses.md`, `superpo
 | **Antigravity (`invoke_subagent`)** | `invoke_subagent` + `send_message(Recipient)` | 4-tier enum: `inherit \| flash_lite \| flash \| pro` (`agents/*.md` ignores `model:` frontmatter) | Yes | Cross-provider offload via `flash`/`pro` -> Hydrogen; exact non-tier model IDs require `/swarm` (22 models, single-board, poor nesting) |
 | **Claude Code** | `Agent` (`Task`) + `resume` parameter | 4-tier alias: `inherit \| haiku \| sonnet \| opus` (tool arg or `.claude/agents/*.md` `model:`) | Yes (default depth 3; `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`) | Same-provider (Anthropic) tiers only |
 | **Codex (V2)** | `spawn_agent` (`fork_turns: "none"`) + `followup_task` + `wait_agent` | Exact V2-allowed `model` + `reasoning_effort` (`low \| medium \| high`); `~/.codex/config.toml` `default_subagent_model` | Runtime-dependent (direct fallback) | Specifying `model` alone resets `reasoning_effort` unless both are passed |
+
+---
+
+## 5. Empirical Active-Window & Incremental Payload Sizes
+
+Measured on `2026-11-18` across canonical `step_index`-folded planning trunks of `L0-1` (`n=66` `[CHECKPOINT .. Handoff]` initial windows, `n=18` `(PrevHandoff .. Handoff]` intra-epoch increments) and live session `8d058da7` (`n=8` initial, `n=7` increments), benchmarked against Antigravity `read_file`'s `46,080`-byte (`~45 KB`) single-read limit:
+
+| Payload Mode | `L0-1` Initial Median / Max (`>45 KB`) | `L0-1` Increment Median / Max (`>45 KB`) | `8d058da7` Initial Median / Max | `8d058da7` Increment Median / Max (`>45 KB`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Option A (Full + Raw Tools)** | `211.3 KB` / `817.8 KB` (`65/66`, `98%`) | `27.6 KB` / `176.0 KB` (`6/18`, `33%`) | `447.2 KB` / `531.0 KB` (`8/8`) | `28.3 KB` / `75.7 KB` (`3/7`) |
+| **Option B (Dialogue + Checkpoint + Report)** | `44.1 KB` / `96.3 KB` (`29/66`, `44%`) | `4.3 KB` / `24.9 KB` (`0/18`, `0%`) | `108.2 KB` / `119.6 KB` (`8/8`) | `5.5 KB` / `10.1 KB` (`0/7`, `0%`) |
+| **Option C (Hybrid `<=2 KB` Tools)** | `50.9 KB` / `123.1 KB` (`48/66`, `73%`) | `5.1 KB` / `33.4 KB` (`0/18`, `0%`) | `151.2 KB` / `167.8 KB` (`8/8`) | `6.9 KB` / `16.3 KB` (`0/7`, `0%`) |

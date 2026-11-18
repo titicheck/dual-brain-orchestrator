@@ -1,7 +1,7 @@
 # Activation Modes, Coexistence Boundaries, and Package Structure
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 02
 
 ## Question
