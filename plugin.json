@@ -1,0 +1,8 @@
+{
+  "name": "orchestrator",
+  "version": "1.0.0",
+  "description": "Dual-phase Plan and Execute orchestration on Antigravity single-model sessions using native subagent offloading and lossless Living Memory Window synchronization.",
+  "skills": [
+    "./skills/orchestrator"
+  ]
+}
