@@ -4,6 +4,7 @@ import json
 import pathlib
 import re
 import subprocess
+import sys
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -69,6 +70,7 @@ class PackageContractTests(unittest.TestCase):
         for marker in (
             "exit_plan_mode",
             "enter_plan_mode",
+            "Orchestrator (Neon)",
             "check-origin",
             "orchestrator-tier:",
             "Isolated Subagent",
@@ -153,6 +155,55 @@ class PackageContractTests(unittest.TestCase):
                         resolved.exists(),
                         f"Broken relative link in {rel}: {target}",
                     )
+
+    def test_conditional_host_transcript_schema_probe(self) -> None:
+        brain_root = pathlib.Path.home() / ".gemini" / "antigravity" / "brain"
+        cli_script = REPO_ROOT / "skills" / "orchestrator" / "scripts" / "sync_memory.py"
+        if not brain_root.is_dir():
+            self.skipTest("No local Antigravity transcripts found for conditional host schema probe")
+        candidates = [
+            p
+            for p in brain_root.glob("*/.system_generated/logs/transcript.jsonl")
+            if p.is_file() and p.stat().st_size > 0
+        ]
+        if not candidates:
+            self.skipTest("No local Antigravity transcripts found for conditional host schema probe")
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for tpath in candidates[:2]:
+            lines = tpath.read_text(encoding="utf-8").splitlines()
+            parsed: list[dict[str, object]] = []
+            for idx, line in enumerate(lines):
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    if idx == len(lines) - 1:
+                        continue
+                    raise
+                self.assertIsInstance(rec, dict)
+                step_idx = rec.get("step_index")
+                self.assertIsInstance(step_idx, int)
+                self.assertNotIsInstance(step_idx, bool)
+                self.assertGreaterEqual(step_idx, 0)
+                rec_type = rec.get("type")
+                self.assertIsInstance(rec_type, str)
+                self.assertTrue(rec_type)
+                if "truncated_fields" in rec and rec["truncated_fields"] is not None:
+                    self.assertIsInstance(rec["truncated_fields"], list)
+                parsed.append(rec)
+            self.assertGreater(len(parsed), 0, f"Zero valid JSONL records in {tpath}")
+
+            proc = subprocess.run(
+                [sys.executable, str(cli_script), "check-origin", "--transcript", str(tpath)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, f"check-origin failed on {tpath}: {proc.stderr}")
+            origin = json.loads(proc.stdout).get("origin")
+            self.assertIn(origin, {"TRUNK", "SUBAGENT", "UNKNOWN"})
 
 
 if __name__ == "__main__":
