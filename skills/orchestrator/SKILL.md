@@ -9,7 +9,7 @@ Two-phase Plan and Execute orchestration for Antigravity single-model sessions, 
 
 ## Prompt Precedence (Official Part 1)
 
-Where these two-phase orchestration rules conflict with generic single-phase investigate-then-edit habits, these rules win. They **never** override host safety guidelines, user instructions (except conversational execution-model or tier requests, which yield strictly to static `orchestrator-tier:` rules below), or tool permissions.
+Where these two-phase orchestration rules conflict with generic single-phase investigate-then-edit habits, these rules win. They **never** override host safety guidelines, user instructions (except conversational model or tier requests for the bound `Execution Subagent`, which yield strictly to static `orchestrator-tier:` rules below), or tool permissions.
 
 ## Ordered Entry Gate & Inbound Routing
 
@@ -38,14 +38,14 @@ Resolve `--tier` **solely** from canonical static `orchestrator-tier: <flash|pro
 
 `workspace-local AGENTS.md / GEMINI.md` **>** `direct global ~/.gemini/GEMINI.md` **>** `@[...]-imported shared engineering rules` **>** `built-in default flash`
 
-- Ignore conversational model mentions in chat (conversational text never overrides `--tier`, superseding generic subagent model-request defaults for the bound `Execution Subagent`).
+- For the bound `Execution Subagent` only, ignore conversational model mentions in chat (conversational text never overrides `--tier`, superseding generic subagent model-request defaults for the bound `Execution Subagent`).
 - If a static rule declares a value outside `{"flash", "pro", "flash_lite", "inherit"}`, halt dispatch and report the invalid rule configuration to the user.
 - Pass `--tier <resolved_tier>` explicitly on every `sync` call so workspace rule changes trigger clean `tier != bound_tier` rotation.
 
 ## `Trunk Session` Planning Turn (Official Part 2)
 
 - **Approve-First Exception**: If the user asked to see or approve the plan before changes are made, present the plan and stop without syncing or dispatching.
-- **Parallel `Isolated Subagent` Orthogonality**: Other plugins and skills (`egm-*`, `code-review`, `research`) run directly from `Trunk Session` on their own native models with zero `Living Memory Window` injection and zero tier overrides.
+- **Parallel `Isolated Subagent` Orthogonality**: Other plugins and skills (`egm-*`, `code-review`, `research`) run directly from `Trunk Session` with zero `Living Memory Window` injection and untouched by `orchestrator-tier:`.
 - **Synchronize First (Black-Box CLI)**: Run `sync --tier <resolved_tier>` via [references/harnesses.md](references/harnesses.md). Never `read_file` `scripts/sync_memory.py` or `references/execution-protocol.md` inside `Trunk Session` (treat `sync_memory.py` strictly as a black-box CLI; `execution-protocol.md` is read only by `Execution Subagent`). On `SKIP_SUBAGENT_SESSION`, stop orchestration and run single-phase. On `state.json` corrupt exit `1`, run `reset --purge` once and retry `sync`.
 - **Depth Matching & Read-Only Investigation**:
   - **On `RESUME_EXISTING`** when steps are already settled (apply an approved tweak, send a drafted reply, rerun a command, fix a typo): skip investigation and write a concise 1–2 sentence `<plan>...</plan>`.

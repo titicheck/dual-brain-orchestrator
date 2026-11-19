@@ -87,6 +87,8 @@ class PackageContractTests(unittest.TestCase):
     def test_trunk_efficiency_and_tier_precedence_guards(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         self.assertIn("except conversational", skill_text.lower())
+        self.assertNotIn("zero tier overrides", skill_text.lower())
+        self.assertIn("untouched by `orchestrator-tier:`", skill_text)
         self.assertRegex(
             skill_text,
             re.compile(
@@ -118,6 +120,7 @@ class PackageContractTests(unittest.TestCase):
         )
 
         readme_text = README_MD.read_text(encoding="utf-8")
+        self.assertIn("untouched by `orchestrator-tier:`", readme_text)
         fenced = re.findall(r"```(?:markdown|md|text)?\r?\n(.*?)\r?\n```", readme_text, re.DOTALL)
         adoption_blocks = [
             b for b in fenced if "## Orchestrator" in b and "orchestrator-tier:" in b
@@ -127,6 +130,7 @@ class PackageContractTests(unittest.TestCase):
             lower = block.lower()
             self.assertIn("conversational", lower)
             self.assertIn("never override", lower)
+            self.assertIn("bound `execution subagent`", lower)
             self.assertLess(len(block.encode("utf-8")), 1000)
 
     def test_relative_markdown_links_and_repo_hygiene(self) -> None:

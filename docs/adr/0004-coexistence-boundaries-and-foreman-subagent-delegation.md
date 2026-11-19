@@ -20,7 +20,7 @@ In Antigravity workspaces, `AGENTS.md` / `GEMINI.md` rules propagate automatical
    - When on-demand raw inspection is needed after compaction, `references/harnesses.md` derives `<bound_subagent_id>`'s `logAbsoluteUri` deterministically as the sibling transcript `<parent of Artifact Directory Path>/<bound_subagent_id>/.system_generated/logs/transcript.jsonl`.
 
 3. **Parallel `Isolated Subagent` Orthogonality**:
-   - `Living Memory Window` and `orchestrator-tier:` apply **exclusively** to the single bound `Execution Subagent`; all `Isolated Subagents` invoked from `Trunk Session` retain 100% of their native skill/host model rules and receive zero injected memory. Nested workers inside an active `Execution Subagent` inherit its model naturally (handing back via Trigger #2 if nested tools are disabled).
+   - `Living Memory Window` and `orchestrator-tier:` apply **exclusively** to the single bound `Execution Subagent`; all `Isolated Subagents` invoked from `Trunk Session` remain untouched by `orchestrator-tier:` and receive zero injected memory. Nested workers inside an active `Execution Subagent` inherit its model naturally (handing back via Trigger #2 if nested tools are disabled).
 
 ## Consequences
 
