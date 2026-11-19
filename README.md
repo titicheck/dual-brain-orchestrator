@@ -1,5 +1,7 @@
 # Orchestrator
 
+English | [简体中文](README.zh-CN.md)
+
 Dual-phase Plan and Execute orchestration for **Antigravity single-model sessions** (pairing a Planning `Trunk Session` with a bound native `Execution Subagent` via lossless compaction-bounded `Living Memory Window` inheritance).
 
 ---

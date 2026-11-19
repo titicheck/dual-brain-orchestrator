@@ -136,6 +136,12 @@ class PackageContractTests(unittest.TestCase):
     def test_relative_markdown_links_and_repo_hygiene(self) -> None:
         cjk_re = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
         link_re = re.compile(r"\[[^\]]+\]\(([^)#\s]+)(?:#[^)]*)?\)")
+        zh_switcher = "[\u7b80\u4f53\u4e2d\u6587](README.zh-CN.md)"
+
+        readme_zh = REPO_ROOT / "README.zh-CN.md"
+        self.assertTrue(readme_zh.is_file(), "README.zh-CN.md must exist")
+        self.assertIn("[English](README.md)", readme_zh.read_text(encoding="utf-8"))
+        self.assertIn(zh_switcher, README_MD.read_text(encoding="utf-8"))
 
         files = subprocess.check_output(
             ["git", "-C", str(REPO_ROOT), "ls-files", "--others", "--cached", "--exclude-standard"],
@@ -146,10 +152,12 @@ class PackageContractTests(unittest.TestCase):
             if not p.is_file():
                 continue
             txt = p.read_text(encoding="utf-8")
-            self.assertFalse(
-                cjk_re.findall(txt),
-                f"CJK characters detected in {rel}",
-            )
+            if rel != "README.zh-CN.md":
+                check_txt = txt.replace(zh_switcher, "", 1) if rel == "README.md" else txt
+                self.assertFalse(
+                    cjk_re.findall(check_txt),
+                    f"CJK characters detected in {rel}",
+                )
             if p.suffix == ".md":
                 for target in link_re.findall(txt):
                     if target.startswith(("http://", "https://", "C:", "c:", "file:")):
