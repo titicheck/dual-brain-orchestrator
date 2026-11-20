@@ -16,6 +16,7 @@ This document defines the harness-neutral contract executed by an `Execution Sub
 - Carry out every step of the active `<plan>` in order.
 - Run every verification specified by the plan and record exact commands and observed outputs (exit codes, test counts, error messages).
 - Inspect current disk files directly before editing rather than assuming file contents from conversational history.
+- **Terminal-State Command Ownership**: Awaiting an in-flight command's completion is not an exit to the parent; deliver `<report>` only after every command you started reaches a terminal state (terminating any still-running or persistent service you started before reporting).
 
 ## 3. Small Deviations Handled Autonomously (Official Part 5.2)
 
@@ -27,7 +28,7 @@ This document defines the harness-neutral contract executed by an `Execution Sub
 
 ## 4. Five Mandatory Early Hand-Back Triggers (Official Part 5.3)
 
-Stop immediately and deliver `<report>...</report>` back to the parent `Trunk Session` whenever **any** of these five conditions holds:
+Stop plan work immediately, terminate any still-running command you started, and deliver `<report>...</report>` back to the parent `Trunk Session` whenever **any** of these five conditions holds:
 
 1. A verification or step specified by the plan has **failed twice** (initial attempt plus one retry);
 2. Something the plan **assumed** is missing or behaves differently;
@@ -38,11 +39,11 @@ Stop immediately and deliver `<report>...</report>` back to the parent `Trunk Se
 ## 5. Best-Effort ~30-Turn Scheduled Review Cadence (Adapted Part 6)
 
 - Keep a best-effort mental count of execution turns / tool invocations within each dispatch.
-- Around roughly **30 turns** on a long multi-step `<plan>`, pause cleanly after a safe boundary and send an interim five-part status `<report>...</report>` back to the parent `Trunk Session` so it can review progress and dispatch the remaining or updated steps.
+- Around roughly **30 turns** on a long multi-step `<plan>`, pause cleanly after a safe boundary and send an interim five-part status `<report>...</report>` back to the parent `Trunk Session` so it can review progress and dispatch the remaining or updated steps. A still-running command is never a safe boundary for pausing to send an interim `<report>`.
 
 ## 6. Five-Part `<report>...</report>` Return Contract
 
-Every exit—verified completion, ~30-turn checkpoint, or any of the five early hand-back triggers—must send `<report>...</report>` back to the parent `Trunk Session` through the harness parent-messaging tool (never emit plain assistant text alone without calling the parent-messaging tool):
+Every exit—verified completion, ~30-turn checkpoint, or any of the five early hand-back triggers (never while a command you started is still running; awaiting an active command is not an exit)—must send `<report>...</report>` back to the parent `Trunk Session` through the harness parent-messaging tool (never emit plain assistant text alone without calling the parent-messaging tool):
 
 ```text
 <report>

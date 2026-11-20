@@ -4,7 +4,7 @@ This document isolates all Antigravity-specific paths, tool invocations, envelop
 
 ---
 
-## 1. Path & Python Resolution on Antigravity
+## 1. Path, Python & Command Ownership on Antigravity
 
 - **`<SkillDir>`**: Directory containing this loaded `orchestrator` skill (`<skills>` entry). Always invoke sibling scripts and reference files relative to `<SkillDir>`:
   - Synchronization CLI: `<SkillDir>/scripts/sync_memory.py` (invoke strictly as a black-box CLI; never `read_file` its source in `Trunk Session`)
@@ -16,8 +16,9 @@ This document isolates all Antigravity-specific paths, tool invocations, envelop
   - Session state file: `<ArtifactDir>/scratch/orchestrator/state.json`
   - Exported pages dir: `<ArtifactDir>/scratch/orchestrator/pages`
   - Sibling subagent log template (deterministic across compactions):
-    `<parent of ArtifactDir>/<subagentId>/.system_generated/logs/transcript.jsonl`
+    `<parent of ArtifactDir>/<subagentId>/.system_generated/logs/transcript.jsonl` (and sibling `<parent of ArtifactDir>/<subagentId>/.system_generated/logs/transcript_full.jsonl` when `truncated_fields` is present)
 - **Python Command**: `py -3` on Windows (`python3` on POSIX). Never use bare `python` on Windows.
+- **Command Ownership & Synchronous Wait Cap**: Antigravity caps `run_command` synchronous wait at `WaitMsBeforeAsync <= 10000 ms`; longer commands auto-background and deliver completion or status wakeups exclusively to the invoking session, and turn-internal polling is discouraged. Practically, `Trunk Session` completes in-turn only observational commands finishing within the synchronous window (writing longer builds, full test suites, benchmarks, and probe scripts into `<plan>`, and terminating any started command that unexpectedly does not finish before yielding), while `Execution Subagent` awaits terminal states of started commands (or terminates them before reporting) so neither session yields with a started command still running.
 
 ---
 
@@ -73,7 +74,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
      <ordered page paths from sync stdout["pages"], or "(none — Turn-1 clean start)">
 
      Parent return requirement:
-     When finished verified, at ~30 execution turns, or immediately upon hitting any of the 5 hand-back triggers in `execution-protocol.md`, return a 5-part `<report>...</report>` to parent conversation `<ArtifactDir ConversationID>` via `send_message` (never emit plain assistant text alone).
+     When finished verified (with every started command at a terminal state), at a safe ~30-turn boundary (never while a started command is still running), or upon hitting any of the 5 hand-back triggers in `execution-protocol.md` (stopping plan work and terminating any still-running started command first), return a 5-part `<report>...</report>` to parent conversation `<ArtifactDir ConversationID>` via `send_message` (never emit plain assistant text alone; awaiting an active command is not an exit).
 
      <plan>
      ...complete 5-section plan...
@@ -92,7 +93,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
    Read any new Living Memory Window delta pages below in order via `read_file` (if none listed, delta is empty):
    <ordered page paths if delta_empty == false, else "(delta empty)">
 
-   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns; stop immediately on any of the 5 Official triggers (`Re-plan if:` included); and deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone).
+   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns (a still-running command is never a safe boundary); stop plan work immediately, terminate any still-running started command, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands before reporting (awaiting an active command is not an exit); and deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone).
 
    <plan>
    ...settled 1–2 sentence follow-up or full revised plan...
@@ -118,3 +119,5 @@ When extending beyond Antigravity in future versions (e.g., Claude Code or Codex
 1. Root conversation origin verification (`step 0` check before dispatch);
 2. Spawning or resuming a bound worker conversation using static-rule tier selection plus `Living Memory Window` pages;
 3. Delivering `<report>...</report>` back into the `Trunk Session` `[plan review]` gate.
+
+Client-specific command synchronous-wait, auto-backgrounding, and process-ownership boundaries also remain isolated in this file.

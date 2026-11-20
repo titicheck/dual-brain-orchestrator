@@ -9,6 +9,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILL_MD = REPO_ROOT / "skills" / "orchestrator" / "SKILL.md"
+EXECUTION_PROTOCOL_MD = REPO_ROOT / "skills" / "orchestrator" / "references" / "execution-protocol.md"
 HARNESSES_MD = REPO_ROOT / "skills" / "orchestrator" / "references" / "harnesses.md"
 PLUGIN_JSON = REPO_ROOT / "plugin.json"
 README_MD = REPO_ROOT / "README.md"
@@ -216,6 +217,45 @@ class PackageContractTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, f"check-origin failed on {tpath}: {proc.stderr}")
             origin = json.loads(proc.stdout).get("origin")
             self.assertIn(origin, {"TRUNK", "SUBAGENT", "UNKNOWN"})
+
+    def test_session_bound_command_ownership_contracts(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        protocol_text = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8")
+        harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
+
+        for forbidden_host_token in ("WaitMsBeforeAsync", "10000"):
+            self.assertNotIn(forbidden_host_token, skill_text)
+            self.assertNotIn(forbidden_host_token, protocol_text)
+        for text in (skill_text, protocol_text, harnesses_text):
+            self.assertNotIn("../..", text)
+
+        self.assertNotIn("observational `run_command` builds, tests, or queries", skill_text)
+        self.assertIn("Session-Bound Command Ownership Invariant", skill_text.split("## Ordered Entry Gate", 1)[0])
+        skill_lower = skill_text.lower()
+        self.assertIn("never yield", skill_lower)
+        self.assertIn("still running", skill_lower)
+        self.assertIn("three-tier verification ladder", skill_lower)
+        self.assertIn("persistent services cannot outlive a dispatch", skill_lower)
+
+        protocol_lower = protocol_text.lower()
+        for marker in (
+            "terminal state",
+            "terminate any still-running command",
+            "not an exit",
+            "never a safe boundary",
+        ):
+            self.assertIn(marker, protocol_lower)
+
+        sec1 = harnesses_text.split("## 2.", 1)[0]
+        self.assertIn("WaitMsBeforeAsync <= 10000 ms", sec1)
+        self.assertIn("transcript_full.jsonl", sec1)
+        spawn_section = harnesses_text.split("### On `SPAWN_NEW`", 1)[1].split("### On `RESUME_EXISTING`", 1)[0].lower()
+        resume_section = harnesses_text.split("### On `RESUME_EXISTING`", 1)[1].split("## 4. Recovery", 1)[0].lower()
+        for section in (spawn_section, resume_section):
+            self.assertIn("terminal state", section)
+            self.assertIn("still-running", section)
+            self.assertIn("not an exit", section)
+            self.assertIn("terminat", section.lower())
 
 
 if __name__ == "__main__":
