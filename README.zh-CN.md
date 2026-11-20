@@ -25,7 +25,7 @@
 ```markdown
 ## Orchestrator
 
-在工程会话中采用 `orchestrator` 规划与执行调度，除非当前会话声明精确小写的 `exit_plan_mode` 或 `enter_plan_mode`、运行 `/swarm` 或 `[swarm]`/`[board]` 工作轮、或 `step 0` 起源为子代理。无文件/状态修改与外部副作用的纯问答和零修改审查直接在主会话作答（压缩后亦不调同步 CLI）。锁死绑定执行子代理档位于静态 `orchestrator-tier:` 规则（口头模型请求绝不覆盖 `--tier`；单项目可在 `AGENTS.md` 声明同名指令覆盖）。入站 `[Message]` 唤醒分三路路由（`bound_subagent_id` -> `[plan review]`；已退役执行子代理 -> 忽略/终止；独立 `Isolated Subagent` -> 保持原样）。进入修改派发或 `[plan review]` 前确认存在 `invoke_subagent`/`send_message`（缺失时一行说明并停止）；若已压缩，先运行 `check-origin`（`SUBAGENT`/`UNKNOWN` 退让为单阶段）。
+仅在由人类发起的顶层单模型会话（含上下文压缩后）中，且未暴露精确小写 `exit_plan_mode`/`enter_plan_mode`、非 `/swarm` 流程时，于规划或执行涉及文件/状态修改与外部副作用的任务，或处理已绑定 `Execution Subagent` 回报时加载 `orchestrator`（遵循其 `SKILL.md`）。绑定执行子代理档位锁死为静态 `orchestrator-tier:` 规则（口头模型请求绝不覆盖；单项目可在工作区 `AGENTS.md` 声明同名指令覆盖）。
 
 orchestrator-tier: flash
 ```

@@ -25,7 +25,7 @@ Add this snippet once in your shared engineering library `AGENTS.md` (or `~/.gem
 ```markdown
 ## Orchestrator
 
-Adopt `orchestrator` for planning-and-execution scheduling unless this session exposes exact lowercase `exit_plan_mode` or `enter_plan_mode`, runs `/swarm` or `[swarm]`/`[board]` worker turns, or originated at `step 0` as a child subagent. Answer pure Q&A and zero-edit, zero-side-effect reviews directly (zero CLI calls even after compaction). Lock the bound `Execution Subagent` tier strictly to static `orchestrator-tier:` rules (conversational model requests never override `--tier`). Route inbound `[Message]` wakeups three ways (`bound_subagent_id` -> `[plan review]`; superseded executor -> ignore/kill; `Isolated Subagent` -> untouched). Before edits or `[plan review]`, verify `invoke_subagent`/`send_message` exist (halt cleanly with one line if absent); if compacted, run `check-origin` first (fail-closed on `SUBAGENT`/`UNKNOWN`).
+Load `orchestrator` (`SKILL.md`) only in top-level human-originated (including post-compaction) single-model sessions—without exact lowercase `exit_plan_mode`/`enter_plan_mode` and outside `/swarm`—when planning or executing tasks that modify files, state, or external side effects, or when resuming the bound `Execution Subagent`. Lock the bound `Execution Subagent` tier strictly to static `orchestrator-tier:` rules (conversational model requests never override it; override per project in workspace `AGENTS.md`).
 
 orchestrator-tier: flash
 ```

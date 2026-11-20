@@ -29,6 +29,27 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 
 class PackageContractTests(unittest.TestCase):
+    def _extract_fenced_blocks(self, text: str) -> list[str]:
+        return re.findall(r"```(?:markdown|md|text)?\r?\n(.*?)\r?\n```", text, re.DOTALL)
+
+    def _extract_adoption_blocks(self, path: pathlib.Path, label: str) -> list[str]:
+        text = path.read_text(encoding="utf-8")
+        fenced = self._extract_fenced_blocks(text)
+        adoption_blocks = [
+            b for b in fenced if "## Orchestrator" in b and "orchestrator-tier:" in b
+        ]
+        self.assertTrue(
+            adoption_blocks,
+            f"{label} must contain a copyable ## Orchestrator adoption snippet",
+        )
+        for block in adoption_blocks:
+            self.assertLess(
+                len(block.encode("utf-8")),
+                1000,
+                f"{label} adoption snippet must stay < 1,000 UTF-8 bytes",
+            )
+        return adoption_blocks
+
     def test_single_root_plugin_manifest_and_zero_forbidden_bundles(self) -> None:
         self.assertTrue(PLUGIN_JSON.is_file(), "plugin.json must exist at repo root")
         data = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
@@ -79,7 +100,7 @@ class PackageContractTests(unittest.TestCase):
             self.assertIn(marker, text, f"README missing checklist/doc marker: {marker}")
 
         # Verify at least one copyable snippet block containing orchestrator-tier: < 1,000 UTF-8 bytes
-        fenced = re.findall(r"```(?:markdown|md|text)?\r?\n(.*?)\r?\n```", text, re.DOTALL)
+        fenced = self._extract_fenced_blocks(text)
         tier_blocks = [b for b in fenced if "orchestrator-tier:" in b]
         self.assertTrue(tier_blocks, "README must contain a copyable orchestrator-tier: snippet")
         for block in tier_blocks:
@@ -122,17 +143,12 @@ class PackageContractTests(unittest.TestCase):
 
         readme_text = README_MD.read_text(encoding="utf-8")
         self.assertIn("untouched by `orchestrator-tier:`", readme_text)
-        fenced = re.findall(r"```(?:markdown|md|text)?\r?\n(.*?)\r?\n```", readme_text, re.DOTALL)
-        adoption_blocks = [
-            b for b in fenced if "## Orchestrator" in b and "orchestrator-tier:" in b
-        ]
-        self.assertTrue(adoption_blocks)
+        adoption_blocks = self._extract_adoption_blocks(README_MD, "README.md")
         for block in adoption_blocks:
             lower = block.lower()
             self.assertIn("conversational", lower)
             self.assertIn("never override", lower)
             self.assertIn("bound `execution subagent`", lower)
-            self.assertLess(len(block.encode("utf-8")), 1000)
 
     def test_relative_markdown_links_and_repo_hygiene(self) -> None:
         cjk_re = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
@@ -256,6 +272,39 @@ class PackageContractTests(unittest.TestCase):
             self.assertIn("still-running", section)
             self.assertIn("not an exit", section)
             self.assertIn("terminat", section.lower())
+
+    def test_adoption_snippets_follow_ssot_thin_pointer_contract(self) -> None:
+        readme_zh = REPO_ROOT / "README.zh-CN.md"
+        for label, path in [("README.md", README_MD), ("README.zh-CN.md", readme_zh)]:
+            adoption_blocks = self._extract_adoption_blocks(path, label)
+            for block in adoption_blocks:
+                lower = block.lower()
+                for required in (
+                    "skill.md",
+                    "exit_plan_mode",
+                    "enter_plan_mode",
+                    "/swarm",
+                    "execution subagent",
+                ):
+                    self.assertIn(
+                        required,
+                        lower,
+                        f"{label} adoption snippet missing required token: {required}",
+                    )
+                for forbidden in (
+                    "bound_subagent_id",
+                    "[plan review]",
+                    "invoke_subagent",
+                    "send_message",
+                    "check-origin",
+                    "--tier",
+                    "isolated subagent",
+                ):
+                    self.assertNotIn(
+                        forbidden,
+                        lower,
+                        f"{label} adoption snippet must not duplicate SKILL.md internal token: {forbidden}",
+                    )
 
 
 if __name__ == "__main__":
