@@ -242,6 +242,8 @@ class PackageContractTests(unittest.TestCase):
         for forbidden_host_token in ("WaitMsBeforeAsync", "10000"):
             self.assertNotIn(forbidden_host_token, skill_text)
             self.assertNotIn(forbidden_host_token, protocol_text)
+        for forbidden_protocol_tool in ("run_command", "manage_task", "schedule", "<SYSTEM_MESSAGE>"):
+            self.assertNotIn(forbidden_protocol_tool, protocol_text)
         for text in (skill_text, protocol_text, harnesses_text):
             self.assertNotIn("../..", text)
 
@@ -259,6 +261,8 @@ class PackageContractTests(unittest.TestCase):
             "terminate any still-running command",
             "not an exit",
             "never a safe boundary",
+            "polling timers",
+            "poll task status",
         ):
             self.assertIn(marker, protocol_lower)
 
@@ -271,6 +275,7 @@ class PackageContractTests(unittest.TestCase):
             self.assertIn("terminal state", section)
             self.assertIn("still-running", section)
             self.assertIn("not an exit", section)
+            self.assertIn("without polling", section)
             self.assertIn("terminat", section.lower())
 
     def test_adoption_snippets_follow_ssot_thin_pointer_contract(self) -> None:

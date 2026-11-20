@@ -16,7 +16,7 @@ This document defines the harness-neutral contract executed by an `Execution Sub
 - Carry out every step of the active `<plan>` in order.
 - Run every verification specified by the plan and record exact commands and observed outputs (exit codes, test counts, error messages).
 - Inspect current disk files directly before editing rather than assuming file contents from conversational history.
-- **Terminal-State Command Ownership**: Awaiting an in-flight command's completion is not an exit to the parent; deliver `<report>` only after every command you started reaches a terminal state (terminating any still-running or persistent service you started before reporting).
+- **Terminal-State Command Ownership**: Awaiting an in-flight command's completion is not an exit to the parent; deliver `<report>` only after every command you started reaches a terminal state (terminating any still-running or persistent service you started before reporting). When a started command continues asynchronously in the background, end your turn cleanly to await its completion notification—never detach batch commands, loop on shell sleeps, set polling timers, or repeatedly poll task status.
 
 ## 3. Small Deviations Handled Autonomously (Official Part 5.2)
 

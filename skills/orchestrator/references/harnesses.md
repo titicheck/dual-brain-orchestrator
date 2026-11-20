@@ -74,7 +74,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
      <ordered page paths from sync stdout["pages"], or "(none — Turn-1 clean start)">
 
      Parent return requirement:
-     When finished verified (with every started command at a terminal state), at a safe ~30-turn boundary (never while a started command is still running), or upon hitting any of the 5 hand-back triggers in `execution-protocol.md` (stopping plan work and terminating any still-running started command first), return a 5-part `<report>...</report>` to parent conversation `<ArtifactDir ConversationID>` via `send_message` (never emit plain assistant text alone; awaiting an active command is not an exit).
+     When finished verified (with every started command at a terminal state), at a safe ~30-turn boundary (never while a started command is still running), or upon hitting any of the 5 hand-back triggers in `execution-protocol.md` (stopping plan work and terminating any still-running started command first), return a 5-part `<report>...</report>` to parent conversation `<ArtifactDir ConversationID>` via `send_message` (never emit plain assistant text alone; awaiting an active command is not an exit—await background completion reactively without polling or timers).
 
      <plan>
      ...complete 5-section plan...
@@ -93,7 +93,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
    Read any new Living Memory Window delta pages below in order via `read_file` (if none listed, delta is empty):
    <ordered page paths if delta_empty == false, else "(delta empty)">
 
-   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns (a still-running command is never a safe boundary); stop plan work immediately, terminate any still-running started command, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands before reporting (awaiting an active command is not an exit); and deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone).
+   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns (a still-running command is never a safe boundary); stop plan work immediately, terminate any still-running started command, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands before reporting (awaiting an active command is not an exit—await background completion reactively without polling or timers); and deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone).
 
    <plan>
    ...settled 1–2 sentence follow-up or full revised plan...
