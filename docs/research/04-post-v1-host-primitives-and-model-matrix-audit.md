@@ -25,12 +25,19 @@ Quota isolation observed on `2026-11-19`:
 - `Claude Opus 5.5`, `Claude Sonnet 5.5`, and `GPT-OSS 120B (Medium)` reported `100%` remaining quota (shared third-party pool);
 - `Gemini 3.8 Flash`, `Gemini 4 Argon`, `Gemini 4 Carbon`, `Gemini 4 Hydrogen`, `Gemini 4 Neon`, and native `Orchestrator` variants reported `90%` remaining quota (Google Gemini pool).
 
+### `2026-11-20` Empirical Telemetry Calibration
+
+Production telemetry (`13,876` steps across `2026-11-13` to `2026-11-20`; see [05-production-telemetry-ttl-and-lifecycle-audit.md](05-production-telemetry-ttl-and-lifecycle-audit.md) and [02-exploratory-notes-and-host-probes.md](02-exploratory-notes-and-host-probes.md)) refined three model-matrix baselines:
+
+- **Tier-to-Hydrogen resolution on `512K` windows:** `invoke_subagent` `flash` resolved to `Gemini 4 Hydrogen (High)` (`908` steps, `5.69s` mean / `4.59s` median TTFT, `89.6 tok/s`, `92.00%` cache hit) and `pro` resolved to `Gemini 4 Hydrogen (XHigh)` (`94` steps, `5.34s` mean / `5.24s` median TTFT, `110.2 tok/s`, `89.75%` cache hit), matching the host's compaction ceiling expansion from `256K` (`L0-1`) to `512K` (late `L0-2` and `L0-3`).
+- **`Gemini 4 Neon (XHigh)` production scheduling telemetry:** Across `28` `neon-4-xhigh` steps, mean TTFT was `7.42s` (`6.65s` median), throughput averaged `61.5 tok/s`, and cache hit reached `90.63%` (`0.0%` misses across `26` consecutive steps with `<= 15s` gaps). This supports using `Neon (High / XHigh)` as a stable daily `Trunk Session` default without mid-session effort-tier switching (which triggers severe KV-cache bucket misses; see `66.88%` zero-cache across model/variant switches in [05-production-telemetry-ttl-and-lifecycle-audit.md](05-production-telemetry-ttl-and-lifecycle-audit.md)).
+
 Operational model assignment across `engineering-kit` stages:
 
 | `engineering-kit` Stage | Primary Artifacts & Actions | Recommended Selection | When `Carbon (High)` Applies |
 |---|---|---|---|
 | **1. Exploratory Ideation & `/grill-me`** | Interactive boundary questioning & design tradeoff discussion | Primary: **`Gemini 4 Neon (High)`**; Cross-family critique: **`Claude Opus 5.5`** | No — avoid same-family high-latency turns |
 | **2. Spec & ADR Convergence** | `.scratch/.../spec.md`, `docs/adr/*.md` | **`Gemini 4 Neon (High / XHigh)`** | No — standard modular specs fit well within `512K` |
-| **3. Dual-Brain Daily Implementation** | Ticket execution, `<plan>` dispatch, `[plan review]` | Trunk: **`Gemini 4 Neon (High)`**; `Execution Subagent`: **`orchestrator-tier: flash`** (`Hydrogen`) | No — `Neon` tool-calling adherence protects soft orchestration invariants |
+| **3. Dual-Brain Daily Implementation** | Ticket execution, `<plan>` dispatch, `[plan review]` | Trunk: **`Gemini 4 Neon (High / XHigh)`**; `Execution Subagent`: **`orchestrator-tier: flash`** (`Hydrogen High`, `512K`; `pro` -> `Hydrogen XHigh` available for high-coupling project overrides) | No — `Neon` tool-calling adherence protects soft orchestration invariants |
 | **4. Review & Pre-Completion Gates** | `code-review`, `egm-*`, `verification-before-completion` | **`Gemini 4 Neon (High)`** or **`Claude Opus 5.5`** (`Isolated Subagent`) | No |
 | **5. `> 512K` Repo Ingestion & Root-Cause Deep Dives** | First-pass mapping over huge monolithic repos exceeding `512K` context, or single-shot offline deadlock/invariant proofs | **`Gemini 4 Carbon (High)`** (`1M` context ceiling) | Yes — hard `512K` context or dead-end deep-search boundary only |
