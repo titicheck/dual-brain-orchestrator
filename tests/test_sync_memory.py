@@ -1024,5 +1024,455 @@ class Slice5Ticket12HardeningRegressionTests(unittest.TestCase):
             self.assertIn("Next", pathlib.Path(out_res["pages"][0]).read_text(encoding="utf-8"))
 
 
+class Slice6CostRotationTests(unittest.TestCase):
+    @staticmethod
+    def _make_antigravity_log(root: pathlib.Path, conv_id: str) -> pathlib.Path:
+        return root / conv_id / ".system_generated" / "logs" / "transcript.jsonl"
+
+    @staticmethod
+    def _report_msg(sender: str, body: str) -> str:
+        return (
+            "The following is a <SYSTEM_MESSAGE>\n\n"
+            "<SYSTEM_MESSAGE>\n"
+            f"[Message] timestamp=2026-11-22T10:00:00Z sender={sender} "
+            f"priority=MESSAGE_PRIORITY_HIGH content=<report>\n{body}\n</report>\n"
+            "</SYSTEM_MESSAGE>"
+        )
+
+    def test_1_pure_q0_keep_vs_rotate_thresholds_and_small_child_protection(self) -> None:
+        # Verify exact break-even math at 50 KB LMW
+        self.assertFalse(sync_memory.should_rotate_for_cost(181_650, 50_000))
+        self.assertTrue(sync_memory.should_rotate_for_cost(181_652, 50_000))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-1")
+            s_dir = root / "trunk-1" / "scratch" / "orchestrator"
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "Plan"},
+                ],
+            )
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 0)
+            b1 = json.loads(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-1").stdout)
+            self.assertEqual(b1, {"status": "bound", "subagent_id": "exec-1"})
+
+            # Child compacted near EOF (300 KB before CHECKPOINT, only ~2 KB after) -> stays RESUME_EXISTING
+            child_path = self._make_antigravity_log(root, "exec-1")
+            write_jsonl(
+                child_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "content": "x" * 300_000},
+                    {"step_index": 1, "type": "CHECKPOINT", "content": "Summary"},
+                    {"step_index": 2, "type": "PLANNER_RESPONSE", "content": "ok"},
+                ],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "Plan"},
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("exec-1", "Done 1")},
+                    {"step_index": 3, "type": "USER_INPUT", "created_at": "t3", "content": "Next 1"},
+                ],
+            )
+            r_small = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(r_small.returncode, 0, r_small.stderr)
+            self.assertEqual(json.loads(r_small.stdout)["action"], "RESUME_EXISTING")
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-1").returncode, 0)
+
+            # Large child (250 KB since CHECKPOINT) vs huge LMW (160 KB) -> blocked by LMW cost
+            big_t = self._make_antigravity_log(root, "trunk-big")
+            big_s = root / "trunk-big" / "scratch" / "orchestrator"
+            write_jsonl(
+                big_t,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "L " * 80_000},
+                ],
+            )
+            self.assertEqual(run_cli("sync", "--transcript", str(big_t), "--state-dir", str(big_s)).returncode, 0)
+            self.assertEqual(run_cli("bind", "--state-dir", str(big_s), "--subagent-id", "exec-big").returncode, 0)
+            write_jsonl(
+                self._make_antigravity_log(root, "exec-big"),
+                [{"step_index": 0, "type": "GENERIC", "content": "g" * 240_000}],
+            )
+            write_jsonl(
+                big_t,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "L " * 80_000},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-big", "Done")},
+                    {"step_index": 2, "type": "USER_INPUT", "created_at": "t2", "content": "More"},
+                ],
+            )
+            r_lmw = run_cli("sync", "--transcript", str(big_t), "--state-dir", str(big_s))
+            self.assertEqual(r_lmw.returncode, 0, r_lmw.stderr)
+            self.assertEqual(json.loads(r_lmw.stdout)["action"], "RESUME_EXISTING")
+
+            # Small LMW (trunk-1) + large child (210 KB since CHECKPOINT) -> flips to SPAWN_NEW
+            write_jsonl(
+                child_path,
+                [
+                    {"step_index": 0, "type": "CHECKPOINT", "content": "Summary"},
+                    {"step_index": 1, "type": "GENERIC", "content": "y" * 210_000},
+                ],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "Plan"},
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("exec-1", "Done 1")},
+                    {"step_index": 3, "type": "USER_INPUT", "created_at": "t3", "content": "Next 1"},
+                    {"step_index": 4, "type": "SYSTEM_MESSAGE", "created_at": "t4", "content": self._report_msg("exec-1", "Done 2")},
+                    {"step_index": 5, "type": "USER_INPUT", "created_at": "t5", "content": "Next 2"},
+                ],
+            )
+            r_rot = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(r_rot.returncode, 0, r_rot.stderr)
+            out_rot = json.loads(r_rot.stdout)
+            self.assertEqual(out_rot["action"], "SPAWN_NEW")
+            self.assertIsNone(out_rot["subagent_id"])
+
+    def test_2_legacy_8key_state_and_c1_poisoned_companion_stays_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-leg")
+            c_path = t_path.with_name("transcript_full.jsonl")
+            s_dir = root / "trunk-leg" / "scratch" / "orchestrator"
+            s_dir.mkdir(parents=True)
+
+            base_records = [
+                {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Init"},
+                {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "OK"},
+            ]
+            digest = sync_memory.compute_digest(
+                {r["step_index"]: (i, r) for i, r in enumerate(base_records)}, 0, 1
+            )
+            legacy_state = {
+                "bound_subagent_id": "exec-leg",
+                "bound_tier": "flash",
+                "execution_subagent_ids": ["exec-leg"],
+                "retired_subagent_max_step": {},
+                "checkpoint_step": -1,
+                "last_synced_step": 1,
+                "prefix_digest": digest,
+                "pending_sync": None,
+            }
+            (s_dir / "state.json").write_text(json.dumps(legacy_state), encoding="utf-8", newline="\n")
+            c_path.parent.mkdir(parents=True, exist_ok=True)
+            c_path.write_text("{corrupt_midline\n", encoding="utf-8")
+            write_jsonl(
+                self._make_antigravity_log(root, "exec-leg"),
+                [{"step_index": 0, "type": "PLANNER_RESPONSE", "content": "tiny"}],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Init", "truncated_fields": ["content"]},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "OK"},
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("exec-leg", "Done")},
+                    {"step_index": 3, "type": "GENERIC", "created_at": "t3", "content": "noise", "truncated_fields": ["content"]},
+                    {"step_index": 4, "type": "USER_INPUT", "created_at": "t4", "content": "Continue"},
+                ],
+            )
+            res = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(json.loads(res.stdout)["action"], "RESUME_EXISTING")
+            staged = json.loads((s_dir / "state.json").read_text(encoding="utf-8"))
+            self.assertGreater(staged["pending_sync"]["lmw_bytes"], 0)
+
+            # Invalid optional lmw_bytes fails validation (exit 1)
+            bad_state = dict(legacy_state, lmw_bytes=-1)
+            (s_dir / "state.json").write_text(json.dumps(bad_state), encoding="utf-8", newline="\n")
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 1)
+
+    def test_3_cost_flipped_spawn_new_hydrates_truncated_earlier_epoch_via_companion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-hyd")
+            c_path = t_path.with_name("transcript_full.jsonl")
+            s_dir = root / "trunk-hyd" / "scratch" / "orchestrator"
+
+            full_step0 = {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "FULL_EPOCH_ZERO_SECRET_CONSTRAINT"}
+            compact_step0 = {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "FULL_EPOCH...", "truncated_fields": ["content"]}
+            step1 = {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "Plan 1"}
+
+            write_jsonl(t_path, [compact_step0, step1])
+            write_jsonl(c_path, [full_step0, step1])
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 0)
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-hyd").returncode, 0)
+
+            write_jsonl(
+                self._make_antigravity_log(root, "exec-hyd"),
+                [{"step_index": 0, "type": "GENERIC", "content": "z" * 220_000}],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    compact_step0,
+                    step1,
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("exec-hyd", "Done")},
+                    {"step_index": 3, "type": "USER_INPUT", "created_at": "t3", "content": "Wave 2"},
+                ],
+            )
+            res = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(res.returncode, 0, res.stderr)
+            out = json.loads(res.stdout)
+            self.assertEqual(out["action"], "SPAWN_NEW")
+            exported = pathlib.Path(out["pages"][0]).read_text(encoding="utf-8")
+            self.assertIn("FULL_EPOCH_ZERO_SECRET_CONSTRAINT", exported)
+
+    def test_4_concurrent_writer_guard_blocks_rotation_without_new_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-conc")
+            s_dir = root / "trunk-conc" / "scratch" / "orchestrator"
+
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-busy", "R1")},
+                    {"step_index": 2, "type": "USER_INPUT", "created_at": "t2", "content": "Keep working"},
+                ],
+            )
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 0)
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-busy").returncode, 0)
+
+            write_jsonl(
+                self._make_antigravity_log(root, "exec-busy"),
+                [{"step_index": 0, "type": "GENERIC", "content": "w" * 300_000}],
+            )
+            # Route 3 research subagent wakes up at step 3 while exec-busy is still running (no new report after step 2)
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-busy", "R1")},
+                    {"step_index": 2, "type": "USER_INPUT", "created_at": "t2", "content": "Keep working"},
+                    {"step_index": 3, "type": "SYSTEM_MESSAGE", "created_at": "t3", "content": self._report_msg("research-sub", "Research note")},
+                    {"step_index": 4, "type": "USER_INPUT", "created_at": "t4", "content": "User note"},
+                ],
+            )
+            res = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(json.loads(res.stdout)["action"], "RESUME_EXISTING")
+
+    def test_5_checkpoint_line_inclusion_string_literal_rejection_and_rewound_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            child = root / "child.jsonl"
+
+            # Quoted "CHECKPOINT" literal inside content must NOT trigger false positive
+            recs_literal = [
+                {"step_index": 0, "type": "USER_INPUT", "content": "Go"},
+                {"step_index": 1, "type": "PLANNER_RESPONSE", "content": 'We discussed "CHECKPOINT" records.'},
+                {"step_index": 2, "type": "GENERIC", "content": 'type: "CHECKPOINT" in prose'},
+            ]
+            write_jsonl(child, recs_literal)
+            self.assertEqual(
+                sync_memory._measure_child_bytes_since_checkpoint(child),
+                child.stat().st_size,
+            )
+
+            # Exact CHECKPOINT line byte inclusion (effective_eof - ckpt_line_start_offset)
+            line0 = json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "a" * 50}) + "\n"
+            line1 = json.dumps({"step_index": 1, "type": "CHECKPOINT", "content": "Summary"}) + "\n"
+            line2 = json.dumps({"step_index": 2, "type": "PLANNER_RESPONSE", "content": "after"}) + "\n"
+            child.write_bytes((line0 + line1 + line2).encode("utf-8"))
+            self.assertEqual(
+                sync_memory._measure_child_bytes_since_checkpoint(child),
+                len((line1 + line2).encode("utf-8")),
+            )
+
+            # Hypothetical rewound CHECKPOINT with step_index > eof_step_index is ignored
+            rewound = (
+                json.dumps({"step_index": 0, "type": "USER_INPUT", "content": "base"}) + "\n"
+                + json.dumps({"step_index": 9, "type": "CHECKPOINT", "content": "stale"}) + "\n"
+                + json.dumps({"step_index": 2, "type": "PLANNER_RESPONSE", "content": "rewound"}) + "\n"
+            ).encode("utf-8")
+            child.write_bytes(rewound)
+            self.assertEqual(
+                sync_memory._measure_child_bytes_since_checkpoint(child),
+                len(rewound),
+            )
+
+    def test_6_shallow_path_guard_and_subagent_transcript_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            shallow_t = root / "t.jsonl"
+            s_dir = root / "state"
+            child_custom = root / "custom_child.jsonl"
+
+            self.assertIsNone(sync_memory._resolve_subagent_transcript_path(shallow_t, "exec-1", None))
+            ant_t = self._make_antigravity_log(root, "trunk-ok")
+            self.assertIsNone(sync_memory._resolve_subagent_transcript_path(ant_t, "../escape", None))
+            self.assertIsNone(sync_memory._resolve_subagent_transcript_path(ant_t, "a/b", None))
+
+            write_jsonl(
+                shallow_t,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "Plan"},
+                ],
+            )
+            self.assertEqual(run_cli("sync", "--transcript", str(shallow_t), "--state-dir", str(s_dir)).returncode, 0)
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-sh").returncode, 0)
+
+            write_jsonl(
+                shallow_t,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "Plan"},
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("exec-sh", "Done")},
+                    {"step_index": 3, "type": "USER_INPUT", "created_at": "t3", "content": "Next"},
+                ],
+            )
+            # Shallow path without override stays RESUME_EXISTING with zero IndexError
+            r_sh = run_cli("sync", "--transcript", str(shallow_t), "--state-dir", str(s_dir))
+            self.assertEqual(r_sh.returncode, 0, r_sh.stderr)
+            self.assertEqual(json.loads(r_sh.stdout)["action"], "RESUME_EXISTING")
+
+            # With --subagent-transcript override pointing to 250 KB child -> flips to SPAWN_NEW
+            write_jsonl(child_custom, [{"step_index": 0, "type": "GENERIC", "content": "m" * 250_000}])
+            r_ov = run_cli(
+                "sync",
+                "--transcript",
+                str(shallow_t),
+                "--state-dir",
+                str(s_dir),
+                "--subagent-transcript",
+                str(child_custom),
+            )
+            self.assertEqual(r_ov.returncode, 0, r_ov.stderr)
+            self.assertEqual(json.loads(r_ov.stdout)["action"], "SPAWN_NEW")
+
+    def test_7_eof_non_newline_giant_line_over_64kb_and_fail_open_io_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            child = root / "giant.jsonl"
+
+            # Giant > 70 KB line across 64 KB chunk boundary + valid non-\n EOF line
+            ckpt = (json.dumps({"step_index": 0, "type": "CHECKPOINT", "content": "S"}) + "\n").encode("utf-8")
+            giant = (json.dumps({"step_index": 1, "type": "GENERIC", "content": "G" * 75_000}) + "\n").encode("utf-8")
+            tail_valid = json.dumps({"step_index": 2, "type": "PLANNER_RESPONSE", "content": "end"}).encode("utf-8")
+            child.write_bytes(ckpt + giant + tail_valid)
+            self.assertEqual(
+                sync_memory._measure_child_bytes_since_checkpoint(child),
+                len(ckpt) + len(giant) + len(tail_valid),
+            )
+
+            # Corrupt non-\n trailing fragment trims cleanly to preceding \n boundary
+            child.write_bytes(ckpt + giant + b'{"step_index":2,"trun')
+            self.assertEqual(
+                sync_memory._measure_child_bytes_since_checkpoint(child),
+                len(ckpt) + len(giant),
+            )
+
+            # PermissionError / OSError on child log strictly fails open (RESUME_EXISTING, exit 0)
+            t_path = self._make_antigravity_log(root, "trunk-io")
+            s_dir = root / "trunk-io" / "scratch" / "orchestrator"
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-io", "R1")},
+                ],
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(sync_memory.main(["sync", "--transcript", str(t_path), "--state-dir", str(s_dir)]), 0)
+                self.assertEqual(sync_memory.main(["bind", "--state-dir", str(s_dir), "--subagent-id", "exec-io"]), 0)
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-io", "R1")},
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("exec-io", "R2")},
+                    {"step_index": 3, "type": "USER_INPUT", "created_at": "t3", "content": "Next"},
+                ],
+            )
+            child_io = self._make_antigravity_log(root, "exec-io")
+            write_jsonl(child_io, [{"step_index": 0, "type": "GENERIC", "content": "q" * 250_000}])
+
+            real_open = open
+
+            def fail_child_open(file_arg: object, *args: object, **kwargs: object):
+                if pathlib.Path(str(file_arg)).resolve() == child_io.resolve():
+                    raise PermissionError("locked by av")
+                return real_open(file_arg, *args, **kwargs)
+
+            out_buf = io.StringIO()
+            with (
+                mock.patch("builtins.open", side_effect=fail_child_open),
+                mock.patch("sync_memory.time.sleep"),
+                contextlib.redirect_stdout(out_buf),
+            ):
+                rc = sync_memory.main(["sync", "--transcript", str(t_path), "--state-dir", str(s_dir)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(json.loads(out_buf.getvalue())["action"], "RESUME_EXISTING")
+
+    def test_8_a3_report_preservation_precommit_atomicity_and_retired_subagent_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-a3")
+            s_dir = root / "trunk-a3" / "scratch" / "orchestrator"
+
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                ],
+            )
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 0)
+            b1 = json.loads(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-old").stdout)
+            self.assertNotIn("retired_subagent_id", b1)
+
+            write_jsonl(
+                self._make_antigravity_log(root, "exec-old"),
+                [{"step_index": 0, "type": "GENERIC", "content": "h" * 220_000}],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-old", "Final Old Report")},
+                    {"step_index": 2, "type": "USER_INPUT", "created_at": "t2", "content": "Wave 2"},
+                ],
+            )
+            r_rot = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(r_rot.returncode, 0, r_rot.stderr)
+            out1 = json.loads(r_rot.stdout)
+            self.assertEqual(out1["action"], "SPAWN_NEW")
+            self.assertIn("Final Old Report", pathlib.Path(out1["pages"][0]).read_text(encoding="utf-8"))
+
+            # Pre-commit atomicity: bound_subagent_id stays exec-old until bind; second sync still keeps Final Old Report
+            pre_state = json.loads((s_dir / "state.json").read_text(encoding="utf-8"))
+            self.assertEqual(pre_state["bound_subagent_id"], "exec-old")
+            r_rot2 = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            out2 = json.loads(r_rot2.stdout)
+            self.assertIn("Final Old Report", pathlib.Path(out2["pages"][0]).read_text(encoding="utf-8"))
+
+            # Bind new ID emits retired_subagent_id = exec-old
+            b2 = json.loads(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-new").stdout)
+            self.assertEqual(b2, {"status": "bound", "subagent_id": "exec-new", "retired_subagent_id": "exec-old"})
+
+            # Re-binding same ID omits retired_subagent_id
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "Start"},
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-old", "Final Old Report")},
+                    {"step_index": 2, "type": "USER_INPUT", "created_at": "t2", "content": "Wave 2"},
+                    {"step_index": 3, "type": "SYSTEM_MESSAGE", "created_at": "t3", "content": self._report_msg("exec-new", "New R1")},
+                    {"step_index": 4, "type": "USER_INPUT", "created_at": "t4", "content": "Tiny tweak"},
+                ],
+            )
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 0)
+            b3 = json.loads(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-new").stdout)
+            self.assertEqual(b3, {"status": "bound", "subagent_id": "exec-new"})
+
+
 if __name__ == "__main__":
     unittest.main()

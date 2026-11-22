@@ -5,6 +5,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import textwrap
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -92,7 +93,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("skills", data)
         self.assertLessEqual(set(data.keys()), {"name", "version", "description", "repository"})
         self.assertTrue(SKILL_MD.is_file(), "skills/orchestrator/SKILL.md must exist")
-        self.assertEqual(data.get("version"), "1.1.4")
+        self.assertEqual(data.get("version"), "1.2.0")
         self.assertIsInstance(data.get("description"), str)
         self.assertTrue(data["description"].strip())
 
@@ -457,6 +458,40 @@ class PackageContractTests(unittest.TestCase):
         protocol_sec6 = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8").split("## 6.", 1)[1].lower()
         self.assertIn("<=15 verbatim lines", protocol_sec6)
         self.assertIn("first error + final summary", protocol_sec6)
+
+        spawn_match = re.search(
+            r"### On `SPAWN_NEW`.*?```text\r?\n(.*?)\r?\n\s*```",
+            harnesses_text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(spawn_match, "SPAWN_NEW fenced envelope not found")
+        spawn_envelope = textwrap.dedent(spawn_match.group(1)).replace(
+            "<SkillDir>",
+            "/users/example-user/.gemini/config/plugins/orchestrator/skills/orchestrator-dir",
+        )
+        marker = "if not yet re-read since that summary)."
+        self.assertIn(marker, spawn_envelope)
+        end_offset = len(
+            spawn_envelope[: spawn_envelope.index(marker) + len(marker)].encode("utf-8")
+        )
+        self.assertLess(
+            end_offset,
+            600,
+            f"SPAWN_NEW re-read clause byte offset {end_offset} >= 600",
+        )
+        self.assertLess(
+            resume_section.index("never plain text alone"),
+            resume_section.index("# resuming from a compaction"),
+        )
+
+    def test_v120_cost_rotation_contracts(self) -> None:
+        skill_lower = SKILL_MD.read_text(encoding="utf-8").lower()
+        self.assertIn("skip redundant", skill_lower)
+        self.assertIn("cost-rotation", skill_lower)
+
+        harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
+        self.assertIn("--subagent-transcript", harnesses_text)
+        self.assertIn("retired_subagent_id", harnesses_text)
 
 
 if __name__ == "__main__":

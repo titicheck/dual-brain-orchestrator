@@ -1,6 +1,6 @@
 # Bidirectional Execution Subagent Rotation
 
-`orchestrator` does not automatically rotate its bound `Execution Subagent` based on child-side self-compaction (`CHECKPOINT`) or inter-dispatch idle TTL timers; `SPAWN_NEW` rotation remains unilaterally driven by `Trunk Session` boundaries (`tier != bound_tier`, trunk `checkpoint_step`, trunk rewind digest/step mismatch, or post-crash `reset`) per [ADR-0002](../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md).
+`orchestrator` does not rotate its bound `Execution Subagent` based on unconditional child-side self-compaction (`CHECKPOINT`) or inter-dispatch wall-clock idle TTL timers. While `SPAWN_NEW` rotation remains primarily driven by `Trunk Session` boundaries (`tier != bound_tier`, trunk `checkpoint_step`, trunk rewind digest/step mismatch, or post-crash `reset`), `v1.2.0` adds deterministic, clock-free expected-cost right-brain rotation (`0.60 * C_old > 1.55 * C_new + 15,000`, strictly gated on `last_bound_report_step > last_synced_step` and fail-open on missing/unreadable child logs, with `--subagent-transcript` adapter isolation) per [ADR-0002](../docs/adr/0002-checkpoint-bounded-living-memory-inheritance.md) and [Ticket 18](../.scratch/orchestrator-v1/issues/18-cache-cold-right-brain-rotation-and-lossless-plan-fidelity.md).
 
 ## Why this is out of scope
 
@@ -9,11 +9,12 @@
 - **Disproportionate cost/complexity ratio (Pareto boundary):** Across the `14.4`-hour `L0-3` session (`$57.01` total), cold-reloading the four long-idle events (`steps 1144, 1277, 1299, 1340` at `154k`, `322k`, `344k`, `385k`) versus fresh spawns yields a `$1.68` (`2.95%`) gross counterfactual delta (`~$1.05` prefill-only savings, or `~$1.0–$1.5` / `~2%` estimated net after file re-read overhead; `$0.16` / `0.7%` on `0f48e729`). Adding sibling child-transcript parsing, host-directory coupling, wall-clock non-determinism, and missing/corrupt child-log edge cases to `sync_memory.py` violates the V1 Pareto boundary in [ADR-0006](../docs/adr/0006-pareto-boundary-reject-lifecycle-hooks-and-workflow-carrier.md) and creates conflict risk with long-running delegated tasks.
 - **Existing Epoch-GC covers routine hygiene:** Following host-managed `Trunk Session` compaction and new-window boundaries already provides clean Epoch-GC for routine stale-log accumulation, while a single oversized continuous dispatch exceeding `512K` remains subject to host compaction regardless of rotation policy.
 
-## Re-evaluation Watch Condition
+## Status Update (v1.2.0)
 
-- Wall-clock idle-TTL rotation remains permanently out of scope.
-- After [Ticket 08](../.scratch/orchestrator-v1/issues/08-heavy-and-background-execution-delegation-gate.md) shifts heavy command logs off `Trunk Session` onto `Execution Subagent`, monitor production telemetry for concrete evidence of multi-compaction constraint amnesia or materially elevated dirty-log reload cost before ever reconsidering deterministic, clock-free child-`CHECKPOINT` awareness.
+- Wall-clock idle-TTL rotation and unconditional child-`CHECKPOINT` rotation remain permanently out of scope.
+- [Ticket 18](../.scratch/orchestrator-v1/issues/18-cache-cold-right-brain-rotation-and-lossless-plan-fidelity.md) (`v1.2.0`) closed the post-Ticket-08 re-evaluation with deterministic, clock-free expected-cost rotation (`0.60 * C_old > 1.55 * C_new + 15,000`): freshly compacted small children (`~27K`) and small-right-brain / large-`LMW` pairs stay hot on `RESUME_EXISTING`, while high-context bloated right-brains rotate cleanly to `SPAWN_NEW` only after returning a `<report>`. Missing/unreadable child logs or non-Antigravity layouts fail open cleanly (`RESUME_EXISTING`), preserving multi-client decoupling via `--subagent-transcript`.
 
 ## Prior requests
 
 - [Ticket 07: Bidirectional Execution Subagent Lifecycle Rotation on Self-Compaction and Idle TTL](../.scratch/orchestrator-v1/issues/07-bidirectional-execution-subagent-lifecycle-rotation.md) (closed `wontfix`, `2026-11-20`; telemetry recorded in [05-production-telemetry-ttl-and-lifecycle-audit.md](../docs/research/05-production-telemetry-ttl-and-lifecycle-audit.md))
+- [Ticket 18: Cache-Cold Execution Subagent Rotation and Lossless Active Plan Fidelity](../.scratch/orchestrator-v1/issues/18-cache-cold-right-brain-rotation-and-lossless-plan-fidelity.md) (resolved `v1.2.0` Pure `q=0` cost-rotation architecture, `2026-11-22`)

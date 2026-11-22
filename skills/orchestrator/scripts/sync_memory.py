@@ -17,6 +17,15 @@ from typing import Any, NoReturn
 VALID_TIERS = ("flash", "pro", "flash_lite", "inherit")
 MAX_PAGE_BYTES = 40000
 MAX_PAGE_LINES = 750
+COST_OLD_BASE_TOKENS = 35_627.0
+COST_OLD_TOKENS_PER_BYTE = 0.5703
+COST_NEW_BASE_TOKENS = 23_730.0
+COST_NEW_TOKENS_PER_BYTE = 0.4097
+COST_KEEP_MULT = 0.60
+COST_SPAWN_MULT = 1.55
+COST_SWITCH_FIXED_TOKENS = 15_000.0
+CHILD_SCAN_CHUNK_BYTES = 65_536
+PAGE_HEADER_DELTA_ADJUST_BYTES = 29
 MESSAGE_HEADER_RE = re.compile(
     r"^\[Message\][ \t]+timestamp=\S+[ \t]+sender=(\S+)[ \t]+priority=\S+[ \t]+content=(.*)$",
     re.DOTALL,
@@ -94,6 +103,9 @@ def _validate_pending_sync(pending: Any) -> None:
         raise CliError(1, "invalid state.json: invalid pending_sync.synced_through")
     if not isinstance(pending["prefix_digest"], str):
         raise CliError(1, "invalid state.json: invalid pending_sync.prefix_digest")
+    if "lmw_bytes" in pending:
+        if not _is_strict_int(pending["lmw_bytes"]) or pending["lmw_bytes"] < 0:
+            raise CliError(1, "invalid state.json: invalid pending_sync.lmw_bytes")
 
 
 def validate_state(data: Any) -> dict[str, Any]:
@@ -135,6 +147,9 @@ def validate_state(data: Any) -> dict[str, Any]:
         raise CliError(1, "invalid state.json: invalid last_synced_step")
     if not isinstance(data["prefix_digest"], str):
         raise CliError(1, "invalid state.json: prefix_digest must be str")
+    if "lmw_bytes" in data:
+        if not _is_strict_int(data["lmw_bytes"]) or data["lmw_bytes"] < 0:
+            raise CliError(1, "invalid state.json: invalid lmw_bytes")
 
     _validate_pending_sync(data["pending_sync"])
     return data
@@ -687,6 +702,206 @@ def paginate_blocks(blocks: list[tuple[int, str, str]]) -> list[str]:
     return pages
 
 
+def should_rotate_for_cost(child_bytes_since_ckpt: int, est_lmw_bytes: int) -> bool:
+    """Return True when expected 12-step hot reuse of old child exceeds fresh spawn cost."""
+    est_old_ctx = COST_OLD_BASE_TOKENS + COST_OLD_TOKENS_PER_BYTE * child_bytes_since_ckpt
+    est_new_ctx = COST_NEW_BASE_TOKENS + COST_NEW_TOKENS_PER_BYTE * est_lmw_bytes
+    return (COST_KEEP_MULT * est_old_ctx) > (
+        COST_SPAWN_MULT * est_new_ctx + COST_SWITCH_FIXED_TOKENS
+    )
+
+
+def _find_last_bound_report_step(
+    folded: dict[int, tuple[int, dict[str, Any]]],
+    window_start: int,
+    max_folded_step: int,
+    bound_id: str,
+) -> int:
+    for step_idx in sorted(folded, reverse=True):
+        if step_idx > max_folded_step:
+            continue
+        if step_idx < window_start:
+            break
+        rec = folded[step_idx][1]
+        if rec.get("type") not in ("SYSTEM_MESSAGE", "EPHEMERAL_MESSAGE"):
+            continue
+        raw = rec.get("content")
+        if not isinstance(raw, str):
+            continue
+        kind, candidate = _extract_outer_system_message_body(raw)
+        if kind != "message":
+            continue
+        match = MESSAGE_HEADER_RE.match(candidate)
+        if match and match.group(1) == bound_id:
+            return step_idx
+    return -1
+
+
+def _resolve_subagent_transcript_path(
+    trunk_transcript_path: pathlib.Path,
+    bound_id: str,
+    override_path: str | None,
+) -> pathlib.Path | None:
+    if override_path:
+        return pathlib.Path(override_path)
+    if not bound_id or "/" in bound_id or "\\" in bound_id or ".." in bound_id:
+        return None
+    resolved = trunk_transcript_path.resolve()
+    if len(resolved.parts) < 5 or resolved.parts[-3:] != (
+        ".system_generated",
+        "logs",
+        "transcript.jsonl",
+    ):
+        return None
+    return resolved.parents[3] / bound_id / ".system_generated" / "logs" / "transcript.jsonl"
+
+
+def _iter_lines_reverse(
+    fh: Any, file_size: int, chunk_size: int = CHILD_SCAN_CHUNK_BYTES
+):
+    """Yield (line_start, line_end, raw_line_bytes) in O(N) from EOF back to byte 0."""
+    pos = file_size
+    line_end = file_size
+    carry: list[bytes] = []
+    while pos > 0:
+        read_start = max(0, pos - chunk_size)
+        fh.seek(read_start)
+        chunk = fh.read(pos - read_start)
+        pos = read_start
+        end_in_chunk = len(chunk)
+        nl = chunk.rfind(b"\n", 0, end_in_chunk)
+        while nl != -1:
+            tail = chunk[nl + 1 : end_in_chunk]
+            if carry:
+                raw_line = tail + b"".join(reversed(carry))
+                carry.clear()
+            else:
+                raw_line = tail
+            line_start = read_start + nl + 1
+            yield line_start, line_end, raw_line
+            line_end = line_start
+            end_in_chunk = nl
+            nl = chunk.rfind(b"\n", 0, end_in_chunk)
+        if end_in_chunk > 0:
+            carry.append(chunk[:end_in_chunk])
+    if carry:
+        yield 0, line_end, b"".join(reversed(carry))
+
+
+def _measure_child_bytes_since_checkpoint(child_path: pathlib.Path) -> int | None:
+    """Fail-open O(N) reverse EOF scan returning bytes from latest valid CHECKPOINT line."""
+
+    def _scan() -> int | None:
+        with open(child_path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            file_size = fh.tell()
+            if file_size <= 0:
+                return None
+            effective_eof: int | None = None
+            eof_step_index: int | None = None
+            is_first = True
+            for line_start, line_end, raw_line in _iter_lines_reverse(fh, file_size):
+                if is_first:
+                    is_first = False
+                    if line_start == file_size and raw_line == b"":
+                        effective_eof = file_size
+                        continue
+                    stripped = raw_line.strip()
+                    if not stripped:
+                        effective_eof = line_start
+                        continue
+                    try:
+                        rec = json.loads(stripped.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        effective_eof = line_start
+                        continue
+                    if (
+                        not isinstance(rec, dict)
+                        or not _is_strict_int(rec.get("step_index"))
+                        or rec["step_index"] < 0
+                    ):
+                        effective_eof = line_start
+                        continue
+                    effective_eof = file_size
+                    eof_step_index = rec["step_index"]
+                    if rec.get("type") == "CHECKPOINT":
+                        return effective_eof - line_start
+                    continue
+
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+
+                if eof_step_index is None:
+                    rec = json.loads(stripped.decode("utf-8"))
+                    if (
+                        not isinstance(rec, dict)
+                        or not _is_strict_int(rec.get("step_index"))
+                        or rec["step_index"] < 0
+                    ):
+                        return None
+                    eof_step_index = rec["step_index"]
+                    if effective_eof is None:
+                        effective_eof = line_end
+                    if rec.get("type") == "CHECKPOINT":
+                        return effective_eof - line_start
+                    continue
+
+                if b'"CHECKPOINT"' not in stripped:
+                    continue
+                rec = json.loads(stripped.decode("utf-8"))
+                if not isinstance(rec, dict) or rec.get("type") != "CHECKPOINT":
+                    continue
+                step_idx = rec.get("step_index")
+                if _is_strict_int(step_idx) and 0 <= step_idx <= eof_step_index:
+                    return effective_eof - line_start
+
+            if eof_step_index is None or effective_eof is None:
+                return None
+            return effective_eof
+
+    try:
+        return _retry_on_permission_error(_scan)
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _extract_blocks(
+    expanded: dict[int, tuple[int, dict[str, Any]]],
+    slice_start: int,
+    max_step: int | None,
+    state: dict[str, Any],
+) -> list[tuple[int, str, str]]:
+    blocks: list[tuple[int, str, str]] = []
+    for step_idx in sorted(expanded):
+        if step_idx < slice_start:
+            continue
+        if max_step is not None and step_idx > max_step:
+            break
+        rec = expanded[step_idx][1]
+        rec_type = rec["type"]
+        raw = rec.get("content")
+        if rec_type == "CHECKPOINT" and isinstance(raw, str):
+            text = normalize_lf(raw).strip()
+            if text:
+                blocks.append((step_idx, "Checkpoint Summary", text))
+        elif rec_type == "USER_INPUT" and isinstance(raw, str):
+            text = extract_user_input(raw)
+            if text.strip():
+                blocks.append((step_idx, "User", text))
+        elif rec_type == "PLANNER_RESPONSE" and isinstance(raw, str):
+            text = normalize_lf(raw).strip()
+            if text:
+                blocks.append((step_idx, "Planner", text))
+        elif rec_type in ("SYSTEM_MESSAGE", "EPHEMERAL_MESSAGE") and isinstance(
+            raw, str
+        ):
+            text = extract_system_report(raw, step_idx, state)
+            if text:
+                blocks.append((step_idx, "Execution Report", text))
+    return blocks
+
+
 def _emit_action(
     action: str,
     tier: str,
@@ -749,6 +964,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             "checkpoint_step": -1,
             "synced_through": -1,
             "prefix_digest": "",
+            "lmw_bytes": 0,
         }
         write_state(state_path, state)
         _emit_action("SPAWN_NEW", args.tier, None, -1, -1, "", [])
@@ -807,38 +1023,77 @@ def cmd_sync(args: argparse.Namespace) -> int:
         )
     )
     need_spawn = base_need_spawn or turn1_rewind
+    rendered_pages: list[str]
+    lmw_bytes: int
+
+    if (
+        not need_spawn
+        and state["bound_subagent_id"] is not None
+        and state["last_synced_step"] >= 0
+    ):
+        delta_blocks = _extract_blocks(
+            expanded, state["last_synced_step"] + 1, None, state
+        )
+        delta_pages = paginate_blocks(delta_blocks)
+        delta_bytes = sum(len(p.encode("utf-8")) for p in delta_pages)
+        raw_lmw = state.get("lmw_bytes")
+        if _is_strict_int(raw_lmw) and raw_lmw >= 0:
+            base_lmw_bytes = raw_lmw
+        else:
+            base_blocks = _extract_blocks(
+                folded, window_start, state["last_synced_step"], state
+            )
+            base_lmw_bytes = sum(
+                len(p.encode("utf-8")) for p in paginate_blocks(base_blocks)
+            )
+        est_lmw_bytes = base_lmw_bytes + (
+            max(0, delta_bytes - PAGE_HEADER_DELTA_ADJUST_BYTES)
+            if base_lmw_bytes > 0 and delta_bytes > 0
+            else delta_bytes
+        )
+        last_bound_report_step = _find_last_bound_report_step(
+            folded, window_start, max_folded_step, state["bound_subagent_id"]
+        )
+        if last_bound_report_step > state["last_synced_step"]:
+            child_path = _resolve_subagent_transcript_path(
+                transcript_path,
+                state["bound_subagent_id"],
+                args.subagent_transcript,
+            )
+            child_bytes = (
+                _measure_child_bytes_since_checkpoint(child_path)
+                if child_path is not None
+                else None
+            )
+            if child_bytes is not None and should_rotate_for_cost(
+                child_bytes, est_lmw_bytes
+            ):
+                need_spawn = True
+                expanded = expand_with_companion(
+                    folded,
+                    companion_path,
+                    window_start,
+                    allowed_types=_EXTRACTABLE_TYPES,
+                    expand_tool_calls=False,
+                )
+                blocks = _extract_blocks(expanded, window_start, None, state)
+                rendered_pages = paginate_blocks(blocks)
+                lmw_bytes = sum(len(p.encode("utf-8")) for p in rendered_pages)
+        if not need_spawn:
+            rendered_pages = delta_pages
+            lmw_bytes = est_lmw_bytes
+    else:
+        slice_start = window_start if need_spawn else state["last_synced_step"] + 1
+        blocks = _extract_blocks(expanded, slice_start, None, state)
+        rendered_pages = paginate_blocks(blocks)
+        lmw_bytes = sum(len(p.encode("utf-8")) for p in rendered_pages)
+
     action = "SPAWN_NEW" if need_spawn else "RESUME_EXISTING"
     out_subagent_id = None if need_spawn else state["bound_subagent_id"]
-    slice_start = window_start if need_spawn else state["last_synced_step"] + 1
-
-    blocks: list[tuple[int, str, str]] = []
-    for step_idx in sorted(expanded):
-        if step_idx < slice_start:
-            continue
-        rec = expanded[step_idx][1]
-        rec_type = rec["type"]
-        raw = rec.get("content")
-        if rec_type == "CHECKPOINT" and isinstance(raw, str):
-            text = normalize_lf(raw).strip()
-            if text:
-                blocks.append((step_idx, "Checkpoint Summary", text))
-        elif rec_type == "USER_INPUT" and isinstance(raw, str):
-            text = extract_user_input(raw)
-            if text.strip():
-                blocks.append((step_idx, "User", text))
-        elif rec_type == "PLANNER_RESPONSE" and isinstance(raw, str):
-            text = normalize_lf(raw).strip()
-            if text:
-                blocks.append((step_idx, "Planner", text))
-        elif rec_type in ("SYSTEM_MESSAGE", "EPHEMERAL_MESSAGE") and isinstance(raw, str):
-            text = extract_system_report(raw, step_idx, state)
-            if text:
-                blocks.append((step_idx, "Execution Report", text))
 
     clear_stale_pages(pages_dir)
     page_paths: list[str] = []
-    if blocks:
-        rendered_pages = paginate_blocks(blocks)
+    if rendered_pages:
         pages_dir.mkdir(parents=True, exist_ok=True)
         for page_num, rendered in enumerate(rendered_pages, start=1):
             page_file = (pages_dir / f"page_{page_num:03d}.md").resolve()
@@ -850,6 +1105,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         "checkpoint_step": latest_ckpt,
         "synced_through": max_folded_step,
         "prefix_digest": staged_digest,
+        "lmw_bytes": lmw_bytes,
     }
     write_state(state_path, state)
     _emit_action(
@@ -890,12 +1146,17 @@ def cmd_bind(args: argparse.Namespace) -> int:
     state["checkpoint_step"] = pending["checkpoint_step"]
     state["last_synced_step"] = pending["synced_through"]
     state["prefix_digest"] = pending["prefix_digest"]
+    if "lmw_bytes" in pending:
+        state["lmw_bytes"] = pending["lmw_bytes"]
     if subagent_id not in state["execution_subagent_ids"]:
         state["execution_subagent_ids"].append(subagent_id)
     state["retired_subagent_max_step"].pop(subagent_id, None)
     state["pending_sync"] = None
     write_state(state_path, state)
-    print(json.dumps({"status": "bound", "subagent_id": subagent_id}))
+    result: dict[str, Any] = {"status": "bound", "subagent_id": subagent_id}
+    if prev_id is not None and prev_id != subagent_id:
+        result["retired_subagent_id"] = prev_id
+    print(json.dumps(result))
     return 0
 
 
@@ -930,6 +1191,7 @@ def cmd_reset(args: argparse.Namespace) -> int:
     state["checkpoint_step"] = -1
     state["last_synced_step"] = -1
     state["prefix_digest"] = ""
+    state["lmw_bytes"] = 0
     state["pending_sync"] = None
     clear_stale_pages(pages_dir)
     write_state(state_path, state)
@@ -954,6 +1216,11 @@ def build_parser() -> CliArgumentParser:
         "--force-spawn",
         action="store_true",
         help="Force SPAWN_NEW full-window export while preserving prior bound_subagent_id reports until bind.",
+    )
+    p_sync.add_argument(
+        "--subagent-transcript",
+        default=None,
+        help="Optional explicit bound Execution Subagent transcript path override for non-Antigravity adapters or replay tests.",
     )
 
     p_bind = subparsers.add_parser("bind")
