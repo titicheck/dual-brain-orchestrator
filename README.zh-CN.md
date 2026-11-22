@@ -70,6 +70,6 @@ py -3 -m unittest discover -s tests -v
 在 V1 上运行以下 4 项交互式 Antigravity 检查，并与原生 `Orchestrator` 并排对比：
 
 1. **无条件退让原生 Orchestrator**：在暴露精确小写 `exit_plan_mode` / `enter_plan_mode` 的 `Orchestrator (Carbon)` / `Orchestrator (Neon)` / `Orchestrator (Argon)` 会话中触发编码任务与 `/orchestrator ...`；确认原生同线程热切换完整运行，且零 `sync_memory.py` 调用、零额外派发 `Execution Subagent`。
-2. **防递归、压缩后纯问答直答与三路路由**：确认子代理与 `[swarm]`/`[board]` worker 在实时会话及压缩后均保持单阶段（`check-origin` 对 `"SUBAGENT"` 或 `"UNKNOWN"` 故障闭锁），压缩后的纯问答回合零 CLI 子进程调用，平行 `Isolated Subagent` 的 `[Message]` 回复保留在 `Trunk Session`，以及被取代的孤儿 `Execution Subagent` 被忽略/终止。
+2. **防递归、压缩后纯问答直答与三路路由**：确认子代理（含 `Execution Subagent` 嵌套子代理）与 `[swarm]`/`[board]` worker 在实时会话及压缩后均保持单阶段（`check-origin` 对 `"SUBAGENT"` 或 `"UNKNOWN"` 故障闭锁），压缩后的纯问答回合零 CLI 子进程调用，非绑定原生子代理的 `[Message]` 回复保留在 `Trunk Session`，以及被取代的孤儿 `Execution Subagent` 被忽略/终止。
 3. **静态档位锁与 Approve-First / `[plan review]` 连续性**：确认共享规则接入与未配置 `/orchestrator` 锁定在 `"flash"`（忽略对话中的 `"use pro"`），在工作区 `AGENTS.md` 添加 `orchestrator-tier: pro` 会触发 `tier != bound_tier` 的 `SPAWN_NEW` 轮换，且 Approve-First / 中途取消 / `[plan review]` 均平稳衔接不丢失活跃状态。
-4. **平行 `Isolated Subagent` 正交性**：在运行 `flash` 档 `Execution Subagent` 的前沿单模型 `Trunk Session` 中调用 `egm-*` / `research` / `code-review`，确认这些 `Isolated Subagent` 零 `Living Memory Window` 注入且完全不受 `orchestrator-tier:` 影响。
+4. **正交原生子代理与计划内嵌套委派**：在运行 `flash` 档 `Execution Subagent` 的前沿单模型 `Trunk Session` 中，确认 `Trunk Session` 上的只读 `Isolated Subagent`（`egm-*` / `research` / `code-review`）以及 `Execution Subagent` 内部派生的计划内原生子代理均零 `Living Memory Window` 注入、完全不受 `orchestrator-tier:` 影响，并遵循各自原生的工作区/插件/任务档位规则。

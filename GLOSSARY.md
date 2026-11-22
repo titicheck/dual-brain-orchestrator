@@ -1,19 +1,19 @@
 # Orchestrator
 
-Dual-phase orchestration package optimized in V1 for Antigravity single-model sessions (with a reserved adapter seam for future client harnesses) that pairs a planning `Trunk Session` with a bound native `Execution Subagent` through `Living Memory Window` inheritance.
+Dual-phase orchestration package optimized in V1 for Antigravity single-model sessions (with a reserved adapter seam for future client harnesses) where a planning `Trunk Session` and a single strongly-bound native `Execution Subagent` logically form one unified primary agent through `Living Memory Window` inheritance, orthogonal to ordinary native subagents.
 
 ## Language
 
 **Trunk Session**:
-The primary user-facing conversation operating in logical Plan Mode, responsible for requirement alignment, read-only investigation, self-contained `<plan>` authoring, and `[plan review]` adjudication.
+The primary user-facing conversation and planning half of the unified primary agent, operating in logical Plan Mode for requirement alignment, read-only investigation, self-contained `<plan>` authoring, and `[plan review]` adjudication.
 _Avoid_: Coordinator, router, wrapper
 
 **Execution Subagent**:
-A client-native subagent attached to a `Trunk Session` that inherits its `Living Memory Window`, executes `<plan>` steps in single-phase Execution Mode, and returns structured execution `<report>`s.
-_Avoid_: Isolated Subagent, background daemon, peer worker
+The mounted execution half of the unified primary agent (not a domain or task subagent), using a client-native subagent solely as its physical transport carrier to inherit the `Living Memory Window`, execute `<plan>` steps in single-phase Execution Mode, and return structured execution `<report>`s.
+_Avoid_: Domain subagent, Isolated Subagent, background daemon, peer worker
 
 **Isolated Subagent**:
-A fresh-context subagent intentionally spawned without `Living Memory Window` inheritance (such as blind review personas in Elephant-Goldfish Model (EGM)) so it evaluates targets without parent conversation bias.
+A fresh-context subset within the orthogonal native subagent layer (such as blind review personas in Elephant-Goldfish Model (EGM)) intentionally spawned without `Living Memory Window` inheritance and operating outside `orchestrator` mechanics so it evaluates targets without parent conversation bias.
 _Avoid_: Execution Subagent, Right Brain
 
 **Living Memory Window**:

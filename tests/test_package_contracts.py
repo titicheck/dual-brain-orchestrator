@@ -242,7 +242,22 @@ class PackageContractTests(unittest.TestCase):
         for forbidden_host_token in ("WaitMsBeforeAsync", "10000"):
             self.assertNotIn(forbidden_host_token, skill_text)
             self.assertNotIn(forbidden_host_token, protocol_text)
-        for forbidden_protocol_tool in ("run_command", "manage_task", "schedule", "<SYSTEM_MESSAGE>"):
+        for forbidden_protocol_tool in (
+            "run_command",
+            "manage_task",
+            "schedule",
+            "<SYSTEM_MESSAGE>",
+            "invoke_subagent",
+            "send_message",
+            "manage_subagents",
+            "define_subagent",
+            "subagent-default-tier",
+            "orchestrator-tier",
+            "ConversationIds",
+            "TypeName",
+            "logAbsoluteUri",
+            "transcript.jsonl",
+        ):
             self.assertNotIn(forbidden_protocol_tool, protocol_text)
         for text in (skill_text, protocol_text, harnesses_text):
             self.assertNotIn("../..", text)
@@ -310,6 +325,63 @@ class PackageContractTests(unittest.TestCase):
                         lower,
                         f"{label} adoption snippet must not duplicate SKILL.md internal token: {forbidden}",
                     )
+
+    def test_dual_brain_vs_native_subagent_boundary_contracts(self) -> None:
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        protocol_text = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8")
+        harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
+        adr4_text = (
+            REPO_ROOT / "docs" / "adr" / "0004-coexistence-boundaries-and-foreman-subagent-delegation.md"
+        ).read_text(encoding="utf-8")
+
+        top_level_skill = skill_text.split("## Ordered Entry Gate", 1)[0]
+        self.assertIn("Unified Dual-Brain Scope", top_level_skill)
+        self.assertIn("exclusively", top_level_skill.lower())
+        self.assertIn("living memory window", top_level_skill.lower())
+        self.assertIn("orchestrator-tier:", top_level_skill)
+        self.assertIn("read-only", top_level_skill.lower())
+        self.assertNotIn("Parallel `Isolated Subagent` Orthogonality", skill_text)
+
+        self.assertNotIn("inherit the active execution model tier", protocol_text.lower())
+        for label, doc_text in [
+            ("ADR-0004", adr4_text),
+            ("SKILL.md", skill_text),
+            ("harnesses.md", harnesses_text),
+        ]:
+            lower = doc_text.lower()
+            self.assertNotIn("inherit its model", lower, f"Legacy tier inheritance in {label}")
+            self.assertNotIn("inheriting the execution model", lower, f"Legacy tier inheritance in {label}")
+
+        protocol_lower = protocol_text.lower()
+        for marker in ("child subagent", "never directly to", "trigger #2"):
+            self.assertIn(marker, protocol_lower)
+        sec2 = protocol_lower.split("## 2.", 1)[1].split("## 3.", 1)[0]
+        sec4 = protocol_lower.split("## 4.", 1)[1].split("## 5.", 1)[0]
+        sec5 = protocol_lower.split("## 5.", 1)[1].split("## 6.", 1)[0]
+        sec6 = protocol_lower.split("## 6.", 1)[1]
+        for sec_name, sec_text in [
+            ("Section 2", sec2),
+            ("Section 4", sec4),
+            ("Section 5", sec5),
+            ("Section 6", sec6),
+        ]:
+            self.assertIn("child subagent", sec_text, f"{sec_name} missing child subagent parity")
+        self.assertIn("living memory window", sec6)
+
+        spawn_section = harnesses_text.split("### On `SPAWN_NEW`", 1)[1].split("### On `RESUME_EXISTING`", 1)[0].lower()
+        resume_section = harnesses_text.split("### On `RESUME_EXISTING`", 1)[1].split("## 4. Recovery", 1)[0].lower()
+        recovery_section = harnesses_text.split("## 4. Recovery", 1)[1].split("## 5. Future Client", 1)[0].lower()
+        for section_name, section in [
+            ("On SPAWN_NEW", spawn_section),
+            ("On RESUME_EXISTING", resume_section),
+            ("Section 4 Recovery", recovery_section),
+        ]:
+            self.assertIn("child subagent", section, f"{section_name} missing child subagent guard")
+        self.assertIn("reactive wait", resume_section)
+        self.assertIn("descendants", recovery_section)
+        self.assertIn("reactive wait", recovery_section)
+        self.assertIn("unreturned", recovery_section)
+        self.assertLess(recovery_section.index("kill"), recovery_section.index("reset"))
 
 
 if __name__ == "__main__":

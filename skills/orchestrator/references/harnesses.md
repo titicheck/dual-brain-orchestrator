@@ -74,7 +74,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
      <ordered page paths from sync stdout["pages"], or "(none — Turn-1 clean start)">
 
      Parent return requirement:
-     When finished verified (with every started command at a terminal state), at a safe ~30-turn boundary (never while a started command is still running), or upon hitting any of the 5 hand-back triggers in `execution-protocol.md` (stopping plan work and terminating any still-running started command first), return a 5-part `<report>...</report>` to parent conversation `<ArtifactDir ConversationID>` via `send_message` (never emit plain assistant text alone; awaiting an active command is not an exit—await background completion reactively without polling or timers).
+     When finished verified (with every started command and child subagent at a terminal state), at a safe ~30-turn boundary (never while a started command or child subagent is still running), or upon hitting any of the 5 hand-back triggers in `execution-protocol.md` (stopping plan work and terminating any still-running started command or child subagent first), return a 5-part `<report>...</report>` to parent conversation `<ArtifactDir ConversationID>` via `send_message` (never emit plain assistant text alone; awaiting an active command or child subagent is not an exit—await background completion reactively without polling or timers).
 
      <plan>
      ...complete 5-section plan...
@@ -83,7 +83,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
 3. Immediately call `sync_memory.py bind --subagent-id <conversationId>` using the returned `conversationId`, then end the turn and await reactive `<SYSTEM_MESSAGE>` wakeup without polling `manage_subagents("list")`.
 
 ### On `RESUME_EXISTING`
-1. Whenever live subagent status may be uncertain (e.g., resuming after an `Isolated Subagent` or background wakeup), call `manage_subagents(Action="list")` first so an actively `"running"` `Execution Subagent` is never double-messaged.
+1. Whenever live subagent status may be uncertain (e.g., resuming after another native subagent or background wakeup), call `manage_subagents(Action="list")` first so an `Execution Subagent` that is `"running"` (or `"idle"` without `<report>` in an active reactive wait per Section 4) is never double-messaged.
 2. Call `send_message(Recipient=<subagent_id>, Message=<envelope>)`:
    ```text
    [EXECUTION SUBAGENT — SINGLE PHASE]
@@ -93,7 +93,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
    Read any new Living Memory Window delta pages below in order via `read_file` (if none listed, delta is empty):
    <ordered page paths if delta_empty == false, else "(delta empty)">
 
-   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns (a still-running command is never a safe boundary); stop plan work immediately, terminate any still-running started command, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands before reporting (awaiting an active command is not an exit—await background completion reactively without polling or timers); and deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone).
+   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns (a still-running command or child subagent is never a safe boundary); stop plan work immediately, terminate any still-running started command or child subagent, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands and child subagents before reporting (awaiting an active command or child subagent is not an exit—await background completion reactively without polling or timers); and deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone).
 
    <plan>
    ...settled 1–2 sentence follow-up or full revised plan...
@@ -105,9 +105,9 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
 
 ## 4. Recovery & Model Quota Errors on Antigravity
 
-- **Mid-flight user redirect or cancel**: Inspect `manage_subagents(Action="list")`; if active subagent is running, call `manage_subagents(Action="kill", ConversationIds=[<id>])` **before** `sync_memory.py reset` (and then `sync` when re-dispatching). Inspect `git status`/`git diff` (or workspace files directly outside git) and re-plan cleanly.
-- **Additive user prompt while `bound_subagent_id` is `"running"`**: Yield to await active run completion, or `kill` + `reset` + re-plan cleanly—never double-message an actively `"running"` subagent.
-- **Silent `"idle"` or `"stopped"` without `<report>`**: Inspect `<parent of ArtifactDir>/<bound_subagent_id>/.system_generated/logs/transcript.jsonl` and workspace state; nudge once via `send_message` asking for `<report>`, or `reset -> sync (full <plan>) -> invoke_subagent -> bind`.
+- **Mid-flight user redirect or cancel**: Inspect `manage_subagents(Action="list")` and, when needed, `<bound_subagent_id>`'s `transcript.jsonl`; whenever `bound_subagent_id` has not yet returned `<report>` (whether `"running"` or `"idle"` while in a reactive wait on a background command or child subagent), call `manage_subagents(Action="kill", ConversationIds=[<id>])` (which also terminates nested descendants and deletes child `branch` workspaces) **before** `sync_memory.py reset` (and then `sync` when re-dispatching). Inspect `git status`/`git diff` (or workspace files directly outside git) and re-plan cleanly.
+- **Additive user prompt while `bound_subagent_id` is `"running"` (or `"idle"` in an active reactive wait)**: Yield to await active run completion, or `kill` + `reset` + re-plan cleanly—never nudge or double-message a subagent that is `"running"` or reactively awaiting an unreturned background command or child subagent.
+- **Silent `"idle"` or `"stopped"` without `<report>`**: Inspect `<parent of ArtifactDir>/<bound_subagent_id>/.system_generated/logs/transcript.jsonl` and workspace state first to distinguish an active reactive wait from a genuinely stalled turn (for "idle", not "stopped": if transcript shows an unreturned backgrounded command or spawned child subagent with no subsequent completion message -> active reactive wait; otherwise stalled): treat an active reactive wait identically to `"running"` (yield to await `<report>`, or `kill` + `reset` + re-plan; never nudge or double-message), and only if genuinely stalled nudge once via `send_message` asking for `<report>` or `reset -> sync (full <plan>) -> invoke_subagent -> bind`.
 - **Dead-ID `send_message` failure**: Run `reset -> sync (full self-contained <plan>) -> invoke_subagent -> bind` in the same planning turn.
 - **Quota / API error on subagent**: Inspect workspace state and child `transcript.jsonl`, then report clearly to the user—**never silently switch `Model`**.
 
