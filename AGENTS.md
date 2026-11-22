@@ -1,9 +1,3 @@
-## Shared engineering rules
-
-Shared library: C:/Users/17386/Desktop/Dev/engineering-kit
-
-@[Shared engineering rules](C:/Users/17386/Desktop/Dev/engineering-kit/rules/AGENTS.md)
-
 ## Agent skills
 
 ### Issue tracker

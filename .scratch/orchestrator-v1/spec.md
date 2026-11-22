@@ -1,6 +1,6 @@
 # Orchestrator V1 Specification
 
-Status: ready-for-agent
+Status: implemented (v1.1.2+) — historical baseline archive; living source of truth is `skills/orchestrator/*`, `docs/adr/*`, and `tests/*`.
 
 ## Problem Statement
 

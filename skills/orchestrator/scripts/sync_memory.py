@@ -11,6 +11,7 @@ import pathlib
 import re
 import sys
 import tempfile
+import time
 from typing import Any, NoReturn
 
 VALID_TIERS = ("flash", "pro", "flash_lite", "inherit")
@@ -44,7 +45,19 @@ class CliArgumentParser(argparse.ArgumentParser):
 
 
 def normalize_lf(text: str) -> str:
-    return text.replace("\r\n", "\n")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _retry_on_permission_error(
+    fn: Any, attempts: int = 3, delay_s: float = 0.015
+) -> Any:
+    for idx in range(attempts):
+        try:
+            return fn()
+        except PermissionError:
+            if idx + 1 >= attempts:
+                raise
+            time.sleep(delay_s)
 
 
 def _is_strict_int(value: Any) -> bool:
@@ -131,9 +144,13 @@ def load_state_if_exists(state_path: pathlib.Path) -> tuple[bool, dict[str, Any]
     if not state_path.exists():
         return False, default_state()
     try:
-        raw = state_path.read_text(encoding="utf-8")
+        raw = _retry_on_permission_error(
+            lambda: state_path.read_text(encoding="utf-8")
+        )
         data = json.loads(raw)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except OSError as exc:
+        raise CliError(2, f"unable to read state.json: {exc}") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CliError(1, f"corrupt state.json: {exc}") from exc
     return True, validate_state(data)
 
@@ -145,7 +162,7 @@ def atomic_write_text(path: pathlib.Path, content: str) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(content.encode("utf-8"))
-        os.replace(tmp_path, path)
+        _retry_on_permission_error(lambda: os.replace(tmp_path, path))
     except Exception:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
@@ -164,24 +181,39 @@ def clear_stale_pages(pages_dir: pathlib.Path) -> None:
 
 
 def transcript_location_valid(transcript_path: pathlib.Path) -> bool:
-    if transcript_path.parent.is_dir():
+    resolved = transcript_path.resolve()
+    if resolved.parent.is_dir():
         return True
-    parts = transcript_path.parts
+    parts = resolved.parts
     return (
         len(parts) >= 4
         and parts[-3:] == (".system_generated", "logs", "transcript.jsonl")
-        and transcript_path.parents[2].is_dir()
+        and resolved.parents[2].is_dir()
     )
 
 
 def fold_jsonl_file(path: pathlib.Path) -> dict[int, tuple[int, dict[str, Any]]]:
     """Read and fold an append-only Antigravity JSONL log by step_index."""
     try:
-        raw_text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
+        raw_bytes = path.read_bytes()
+    except OSError as exc:
         raise CliError(2, f"unable to read log {path}: {exc}") from exc
 
-    raw_lines = normalize_lf(raw_text).split("\n")
+    try:
+        raw_text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if raw_bytes.endswith(b"\n"):
+            raise CliError(2, f"invalid UTF-8 in {path}: {exc}") from exc
+        last_nl = raw_bytes.rfind(b"\n")
+        if last_nl == -1:
+            raw_text = ""
+        else:
+            try:
+                raw_text = raw_bytes[: last_nl + 1].decode("utf-8")
+            except UnicodeDecodeError as exc2:
+                raise CliError(2, f"invalid UTF-8 in {path}: {exc2}") from exc2
+
+    raw_lines = raw_text.replace("\r\n", "\n").split("\n")
     last_non_empty_idx = -1
     for i, line in enumerate(raw_lines):
         if line.strip():
@@ -230,45 +262,75 @@ def _clean_additional_metadata(body: str) -> str:
 
 
 _OUTER_ENVELOPE_TAGS = ("<USER_SETTINGS_CHANGE>", "<ADDITIONAL_METADATA>")
+_CLOSE_TO_OPEN_TAG = {f"</{tag[1:]}": tag for tag in _OUTER_ENVELOPE_TAGS}
+_EXTRACTABLE_TYPES = frozenset(
+    {
+        "CHECKPOINT",
+        "USER_INPUT",
+        "PLANNER_RESPONSE",
+        "SYSTEM_MESSAGE",
+        "EPHEMERAL_MESSAGE",
+    }
+)
 
 
 def _pop_leading_envelope(text: str) -> tuple[str, bool, str] | None:
-    stripped = text.lstrip()
-    for open_tag in _OUTER_ENVELOPE_TAGS:
-        if not stripped.startswith(open_tag):
-            continue
-        close_tag = f"</{open_tag[1:]}"
-        close_idx = stripped.find(close_tag)
-        if close_idx == -1:
-            return None
-        inner = stripped[len(open_tag) : close_idx]
-        rest = stripped[close_idx + len(close_tag) :]
-        cleaned = (
-            _clean_additional_metadata(inner)
-            if open_tag == "<ADDITIONAL_METADATA>"
-            else ""
-        )
-        return rest, open_tag == "<ADDITIONAL_METADATA>", cleaned
+    lines = text.split("\n")
+    first_idx = 0
+    while first_idx < len(lines) and lines[first_idx].strip(" \t") == "":
+        first_idx += 1
+    if first_idx >= len(lines):
+        return None
+    open_tag = lines[first_idx].strip(" \t")
+    if open_tag not in _OUTER_ENVELOPE_TAGS:
+        return None
+    close_tag = f"</{open_tag[1:]}"
+    depth = 1
+    for i in range(first_idx + 1, len(lines)):
+        tok = lines[i].strip(" \t")
+        if tok == open_tag:
+            depth += 1
+        elif tok == close_tag:
+            depth -= 1
+            if depth == 0:
+                inner = "\n".join(lines[first_idx + 1 : i])
+                rest = "\n".join(lines[i + 1 :])
+                cleaned = (
+                    _clean_additional_metadata(inner)
+                    if open_tag == "<ADDITIONAL_METADATA>"
+                    else ""
+                )
+                return rest, open_tag == "<ADDITIONAL_METADATA>", cleaned
     return None
 
 
 def _pop_trailing_envelope(text: str) -> tuple[str, bool, str] | None:
-    stripped = text.rstrip()
-    for open_tag in _OUTER_ENVELOPE_TAGS:
-        close_tag = f"</{open_tag[1:]}"
-        if not stripped.endswith(close_tag):
-            continue
-        end_inner = len(stripped) - len(close_tag)
-        open_idx = stripped.rfind(open_tag, 0, end_inner)
-        if open_idx == -1 or stripped.rfind(close_tag, open_idx, end_inner) != -1:
-            return None
-        inner = stripped[open_idx + len(open_tag) : end_inner]
-        cleaned = (
-            _clean_additional_metadata(inner)
-            if open_tag == "<ADDITIONAL_METADATA>"
-            else ""
-        )
-        return stripped[:open_idx], open_tag == "<ADDITIONAL_METADATA>", cleaned
+    lines = text.split("\n")
+    last_idx = len(lines) - 1
+    while last_idx >= 0 and lines[last_idx].strip(" \t") == "":
+        last_idx -= 1
+    if last_idx < 0:
+        return None
+    close_tag = lines[last_idx].strip(" \t")
+    open_tag = _CLOSE_TO_OPEN_TAG.get(close_tag)
+    if open_tag is None:
+        return None
+    depth = 1
+    for i in range(last_idx - 1, -1, -1):
+        tok = lines[i].strip(" \t")
+        if tok == close_tag:
+            depth += 1
+        elif tok == open_tag:
+            depth -= 1
+            if depth == 0:
+                inner = "\n".join(lines[i + 1 : last_idx])
+                rest = "\n".join(lines[:i])
+                cleaned = (
+                    _clean_additional_metadata(inner)
+                    if open_tag == "<ADDITIONAL_METADATA>"
+                    else ""
+                )
+                return rest, open_tag == "<ADDITIONAL_METADATA>", cleaned
     return None
 
 
@@ -296,21 +358,77 @@ def extract_user_input(raw_content: str) -> str:
     return "\n\n".join(parts)
 
 
-def classify_step_zero(folded: dict[int, tuple[int, dict[str, Any]]]) -> str:
-    """Classify session origin from folded step 0: TRUNK, SUBAGENT, or UNKNOWN."""
-    pair = folded.get(0)
-    if pair is None:
+def _extract_outer_system_message_body(raw_content: str) -> tuple[str, str]:
+    """Return (kind, candidate) for outermost SYSTEM_MESSAGE envelopes."""
+    s = normalize_lf(raw_content).lstrip(" \t\n")
+    if s.startswith("[Message] "):
+        return "message", s
+    if s.startswith("<SYSTEM_MESSAGE>\n"):
+        candidate = s[len("<SYSTEM_MESSAGE>\n") :]
+    elif s.startswith("The following is a <SYSTEM_MESSAGE>"):
+        lines = s.split("\n")
+        i = 1
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        if (
+            i < len(lines)
+            and lines[i].rstrip(" \t") == "<SYSTEM_MESSAGE>"
+            and i + 1 < len(lines)
+        ):
+            candidate = "\n".join(lines[i + 1 :])
+        else:
+            return "", ""
+    else:
+        return "", ""
+
+    if candidate.startswith("[Message] "):
+        return "message", candidate
+    return "headerless", candidate
+
+
+def classify_origin(folded: dict[int, tuple[int, dict[str, Any]]]) -> str:
+    """Classify session origin from folded records: TRUNK, SUBAGENT, or UNKNOWN."""
+    if not folded:
         return "UNKNOWN"
-    _, rec = pair
-    rec_type = rec["type"]
-    if rec_type != "USER_INPUT":
+
+    for _, rec in folded.values():
+        if rec.get("type") != "SYSTEM_MESSAGE":
+            continue
+        raw = rec.get("content")
+        if not isinstance(raw, str):
+            continue
+        kind, candidate = _extract_outer_system_message_body(raw)
+        if (
+            kind == "headerless"
+            and candidate.startswith("You are @")
+            and "Everything before this turn is @" in candidate
+        ):
+            return "SUBAGENT"
+        if kind == "message":
+            match = MESSAGE_HEADER_RE.match(candidate)
+            if match and match.group(2).startswith(
+                "You have just started. Your assignment (recorded on the board as #"
+            ):
+                return "SUBAGENT"
+
+    _, rec = folded[min(folded)]
+    if rec.get("type") != "USER_INPUT":
+        return "SUBAGENT"
+    if rec.get("source") not in (None, "USER_EXPLICIT"):
         return "SUBAGENT"
     content = rec.get("content")
     if isinstance(content, str):
         extracted = extract_user_input(content).lstrip()
+        if "content" in (rec.get("truncated_fields") or []) and extracted.startswith(
+            "<USER_REQUEST>"
+        ):
+            extracted = extracted[len("<USER_REQUEST>") :].lstrip()
         if any(extracted.startswith(prefix) for prefix in SUBAGENT_USER_PREFIXES):
             return "SUBAGENT"
     return "TRUNK"
+
+
+classify_step_zero = classify_origin
 
 
 def compute_digest(
@@ -350,14 +468,21 @@ def _created_at_compatible(primary: dict[str, Any], companion: dict[str, Any]) -
 
 def _needs_companion_expansion(
     folded: dict[int, tuple[int, dict[str, Any]]],
-    window_start: int,
+    min_step: int,
+    allowed_types: frozenset[str] | None = None,
+    expand_tool_calls: bool = True,
 ) -> bool:
     for step_idx, (_, rec) in folded.items():
-        if step_idx < window_start:
+        if step_idx < min_step:
+            continue
+        rec_type = rec["type"]
+        if allowed_types is not None and rec_type not in allowed_types:
             continue
         trunc = rec.get("truncated_fields") or []
         if "content" in trunc or (
-            rec["type"] == "PLANNER_RESPONSE" and "tool_calls" in trunc
+            expand_tool_calls
+            and rec_type == "PLANNER_RESPONSE"
+            and "tool_calls" in trunc
         ):
             return True
     return False
@@ -366,46 +491,51 @@ def _needs_companion_expansion(
 def expand_with_companion(
     folded: dict[int, tuple[int, dict[str, Any]]],
     companion_path: pathlib.Path,
-    window_start: int,
+    min_step: int,
+    allowed_types: frozenset[str] | None = None,
+    expand_tool_calls: bool = True,
 ) -> dict[int, tuple[int, dict[str, Any]]]:
-    """Expand truncated content and tool_calls from folded companion full-log."""
+    """Expand truncated content (and optionally tool_calls) from folded companion full-log."""
     expanded: dict[int, tuple[int, dict[str, Any]]] = {
         step_idx: (line_idx, dict(rec)) for step_idx, (line_idx, rec) in folded.items()
     }
-    if not _needs_companion_expansion(expanded, window_start) or not companion_path.exists():
+    if (
+        not _needs_companion_expansion(
+            expanded,
+            min_step,
+            allowed_types=allowed_types,
+            expand_tool_calls=expand_tool_calls,
+        )
+        or not companion_path.exists()
+    ):
         return expanded
 
     comp_folded = fold_jsonl_file(companion_path)
-    comp_by_line = {line_idx: rec for line_idx, rec in comp_folded.values()}
 
-    for step_idx, (orig_line_idx, rec) in expanded.items():
-        if step_idx < window_start:
+    for step_idx, (_, rec) in expanded.items():
+        if step_idx < min_step:
+            continue
+        rec_type = rec["type"]
+        if allowed_types is not None and rec_type not in allowed_types:
             continue
         trunc = rec.get("truncated_fields") or []
         want_content = "content" in trunc
-        want_tools = rec["type"] == "PLANNER_RESPONSE" and "tool_calls" in trunc
+        want_tools = (
+            expand_tool_calls
+            and rec_type == "PLANNER_RESPONSE"
+            and "tool_calls" in trunc
+        )
         if not (want_content or want_tools):
             continue
 
-        comp_rec: dict[str, Any] | None = None
-        cand_by_line = comp_by_line.get(orig_line_idx)
+        cand = comp_folded.get(step_idx)
         if (
-            cand_by_line is not None
-            and cand_by_line["step_index"] == step_idx
-            and cand_by_line["type"] == rec["type"]
+            cand is None
+            or cand[1]["type"] != rec_type
+            or not _created_at_compatible(rec, cand[1])
         ):
-            comp_rec = cand_by_line
-        else:
-            cand_by_step = comp_folded.get(step_idx)
-            if (
-                cand_by_step is not None
-                and cand_by_step[1]["type"] == rec["type"]
-                and _created_at_compatible(rec, cand_by_step[1])
-            ):
-                comp_rec = cand_by_step[1]
-
-        if comp_rec is None:
             continue
+        comp_rec = cand[1]
         if want_content and isinstance(comp_rec.get("content"), str):
             rec["content"] = comp_rec["content"]
         if want_tools and isinstance(comp_rec.get("tool_calls"), list):
@@ -440,25 +570,8 @@ def extract_system_report(
     state: dict[str, Any],
 ) -> str:
     """Strictly parse only outermost Antigravity [Message] headers and quarantine retired senders."""
-    s = normalize_lf(raw_content).lstrip(" \t\n")
-    if s.startswith("[Message] "):
-        candidate = s
-    elif s.startswith("<SYSTEM_MESSAGE>\n"):
-        candidate = s[len("<SYSTEM_MESSAGE>\n") :]
-    elif s.startswith("The following is a <SYSTEM_MESSAGE>"):
-        lines = s.split("\n")
-        i = 1
-        while i < len(lines) and not lines[i].strip():
-            i += 1
-        if (
-            i < len(lines)
-            and lines[i].rstrip(" \t") == "<SYSTEM_MESSAGE>"
-            and i + 1 < len(lines)
-        ):
-            candidate = "\n".join(lines[i + 1 :])
-        else:
-            return ""
-    else:
+    kind, candidate = _extract_outer_system_message_body(raw_content)
+    if kind != "message":
         return ""
 
     match = MESSAGE_HEADER_RE.match(candidate)
@@ -602,7 +715,7 @@ def cmd_check_origin(args: argparse.Namespace) -> int:
         print(json.dumps({"origin": "UNKNOWN"}))
         return 0
     folded = fold_jsonl_file(transcript_path)
-    print(json.dumps({"origin": classify_step_zero(folded)}))
+    print(json.dumps({"origin": classify_origin(folded)}))
     return 0
 
 
@@ -619,7 +732,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             raise CliError(2, f"missing logs directory for transcript: {transcript_path}")
         folded = {}
 
-    if folded and classify_step_zero(folded) == "SUBAGENT":
+    if folded and classify_origin(folded) != "TRUNK":
         _emit_action("SKIP_SUBAGENT_SESSION", args.tier, None, -1, -1, "", [])
         return 0
 
@@ -645,30 +758,55 @@ def cmd_sync(args: argparse.Namespace) -> int:
     latest_ckpt = find_latest_checkpoint_step(folded)
     window_start = max(0, latest_ckpt)
     staged_digest = compute_digest(folded, window_start, max_folded_step)
-    expanded = expand_with_companion(
-        folded, transcript_path.with_name("transcript_full.jsonl"), window_start
-    )
 
     digest_mismatch = (
         state["last_synced_step"] >= window_start
         and compute_digest(folded, window_start, state["last_synced_step"])
         != state["prefix_digest"]
     )
-    turn1_rewind = (
-        state["bound_subagent_id"] is not None
-        and state["last_synced_step"] == -1
-        and not turn1_bound_id_present(
-            expanded, window_start, state["bound_subagent_id"]
-        )
-    )
-    need_spawn = (
-        state["bound_subagent_id"] is None
-        or turn1_rewind
+    base_need_spawn = (
+        args.force_spawn
+        or state["bound_subagent_id"] is None
         or latest_ckpt != state["checkpoint_step"]
         or max_folded_step < state["last_synced_step"]
         or digest_mismatch
         or args.tier != state["bound_tier"]
     )
+    companion_path = transcript_path.with_name("transcript_full.jsonl")
+    if not base_need_spawn and state["last_synced_step"] == -1:
+        expanded = expand_with_companion(
+            folded,
+            companion_path,
+            window_start,
+            allowed_types=None,
+            expand_tool_calls=True,
+        )
+    elif base_need_spawn:
+        expanded = expand_with_companion(
+            folded,
+            companion_path,
+            window_start,
+            allowed_types=_EXTRACTABLE_TYPES,
+            expand_tool_calls=False,
+        )
+    else:
+        expanded = expand_with_companion(
+            folded,
+            companion_path,
+            state["last_synced_step"] + 1,
+            allowed_types=_EXTRACTABLE_TYPES,
+            expand_tool_calls=False,
+        )
+
+    turn1_rewind = (
+        not base_need_spawn
+        and state["bound_subagent_id"] is not None
+        and state["last_synced_step"] == -1
+        and not turn1_bound_id_present(
+            expanded, window_start, state["bound_subagent_id"]
+        )
+    )
+    need_spawn = base_need_spawn or turn1_rewind
     action = "SPAWN_NEW" if need_spawn else "RESUME_EXISTING"
     out_subagent_id = None if need_spawn else state["bound_subagent_id"]
     slice_start = window_start if need_spawn else state["last_synced_step"] + 1
@@ -812,6 +950,11 @@ def build_parser() -> CliArgumentParser:
     p_sync.add_argument("--transcript", required=True)
     p_sync.add_argument("--state-dir", required=True)
     p_sync.add_argument("--tier", default="flash", choices=VALID_TIERS)
+    p_sync.add_argument(
+        "--force-spawn",
+        action="store_true",
+        help="Force SPAWN_NEW full-window export while preserving prior bound_subagent_id reports until bind.",
+    )
 
     p_bind = subparsers.add_parser("bind")
     p_bind.add_argument("--state-dir", required=True)
@@ -840,6 +983,9 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as exc:
         sys.stderr.write(f"error: {exc}\n")
         return exc.exit_code
+    except OSError as exc:
+        sys.stderr.write(f"error: I/O error: {exc}\n")
+        return 2
 
 
 if __name__ == "__main__":

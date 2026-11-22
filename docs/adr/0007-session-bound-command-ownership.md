@@ -1,6 +1,7 @@
 # Session-Bound Command Ownership Across the Dual-Session Split
 
 Status: accepted & implemented (2026-11-20); implemented in [Ticket 08](../../.scratch/orchestrator-v1/issues/08-heavy-and-background-execution-delegation-gate.md).
+Amendments: extended in [Ticket 10](../../.scratch/orchestrator-v1/issues/10-reactive-async-command-waiting.md) (`v1.1.1`, reactive async command waiting), [ADR-0004](0004-coexistence-boundaries-and-foreman-subagent-delegation.md) §3 / [Ticket 11](../../.scratch/orchestrator-v1/issues/11-dual-brain-vs-native-subagent-boundary.md) (`v1.1.2`, child-subagent parity), and [Ticket 12](../../.scratch/orchestrator-v1/issues/12-full-repo-audit-hardening-and-official-alignment.md) (`v1.1.3`, single-call synchronous completion, explicit no-polling rule, `sync_memory.py` timeout abort, removal of rigid command-type blacklists, Tier 1 `git log --stat` for claimed commits, and Tier 3 `sync --force-spawn` respawn replacing `reset` + respawn).
 
 ## Context
 

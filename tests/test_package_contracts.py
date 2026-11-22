@@ -13,6 +13,41 @@ EXECUTION_PROTOCOL_MD = REPO_ROOT / "skills" / "orchestrator" / "references" / "
 HARNESSES_MD = REPO_ROOT / "skills" / "orchestrator" / "references" / "harnesses.md"
 PLUGIN_JSON = REPO_ROOT / "plugin.json"
 README_MD = REPO_ROOT / "README.md"
+SCRIPTS_DIR = REPO_ROOT / "skills" / "orchestrator" / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import sync_memory  # noqa: E402
+
+
+def _github_heading_slugs(md_text: str) -> set[str]:
+    slugs: set[str] = set()
+    seen: dict[str, int] = {}
+    in_fence = False
+    for line in md_text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r"^#{1,6}[ \t]+(.+?)[ \t]*#*$", line)
+        if not m:
+            continue
+        title = m.group(1)
+        title = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", title)
+        title = title.replace("`", "").lower().strip()
+        slug_chars: list[str] = []
+        for ch in title:
+            if ch == " ":
+                slug_chars.append("-")
+            elif ch in ("-", "_") or ch.isalnum():
+                slug_chars.append(ch)
+        base = "".join(slug_chars)
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        slugs.add(base if count == 0 else f"{base}-{count}")
+    return slugs
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -54,9 +89,10 @@ class PackageContractTests(unittest.TestCase):
         self.assertTrue(PLUGIN_JSON.is_file(), "plugin.json must exist at repo root")
         data = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
         self.assertEqual(data.get("name"), "orchestrator")
-        self.assertEqual(data.get("skills"), ["./skills/orchestrator"])
-        self.assertIsInstance(data.get("version"), str)
-        self.assertTrue(data["version"].strip())
+        self.assertNotIn("skills", data)
+        self.assertLessEqual(set(data.keys()), {"name", "version", "description", "repository"})
+        self.assertTrue(SKILL_MD.is_file(), "skills/orchestrator/SKILL.md must exist")
+        self.assertEqual(data.get("version"), "1.1.3")
         self.assertIsInstance(data.get("description"), str)
         self.assertTrue(data["description"].strip())
 
@@ -152,14 +188,21 @@ class PackageContractTests(unittest.TestCase):
 
     def test_relative_markdown_links_and_repo_hygiene(self) -> None:
         cjk_re = re.compile(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
-        link_re = re.compile(r"\[[^\]]+\]\(([^)#\s]+)(?:#[^)]*)?\)")
+        link_re = re.compile(r"\[[^\]]+\]\(([^)#\s]+)?(?:#([^)\s]+))?\)")
         zh_switcher = "[\u7b80\u4f53\u4e2d\u6587](README.zh-CN.md)"
 
         readme_zh = REPO_ROOT / "README.zh-CN.md"
         self.assertTrue(readme_zh.is_file(), "README.zh-CN.md must exist")
-        self.assertIn("[English](README.md)", readme_zh.read_text(encoding="utf-8"))
+        zh_text = readme_zh.read_text(encoding="utf-8")
+        self.assertIn("[English](README.md)", zh_text)
+        self.assertIn("Seam 2B", zh_text)
+        zh_blocks = self._extract_adoption_blocks(readme_zh, "README.zh-CN.md")
+        for block in zh_blocks:
+            self.assertIn("\u53e3\u5934", block)
+            self.assertIn("\u7edd\u4e0d\u8986\u76d6", block)
         self.assertIn(zh_switcher, README_MD.read_text(encoding="utf-8"))
 
+        slug_cache: dict[pathlib.Path, set[str]] = {}
         files = subprocess.check_output(
             ["git", "-C", str(REPO_ROOT), "ls-files", "--others", "--cached", "--exclude-standard"],
             text=True,
@@ -176,14 +219,32 @@ class PackageContractTests(unittest.TestCase):
                     f"CJK characters detected in {rel}",
                 )
             if p.suffix == ".md":
-                for target in link_re.findall(txt):
-                    if target.startswith(("http://", "https://", "C:", "c:", "file:")):
+                for target, fragment in link_re.findall(txt):
+                    if not target and not fragment:
                         continue
-                    resolved = (p.parent / target).resolve()
+                    if target.startswith(("http://", "https://")):
+                        continue
+                    self.assertFalse(
+                        re.match(r"^(?:[A-Za-z]:|file:)", target),
+                        f"Machine-local path link detected in {rel}: {target}",
+                    )
+                    resolved = (p.parent / target).resolve() if target else p.resolve()
                     self.assertTrue(
                         resolved.exists(),
                         f"Broken relative link in {rel}: {target}",
                     )
+                    if fragment and resolved.is_file() and resolved.suffix == ".md":
+                        if re.fullmatch(r"L\d+(?:-L\d+)?", fragment):
+                            continue
+                        if resolved not in slug_cache:
+                            slug_cache[resolved] = _github_heading_slugs(
+                                resolved.read_text(encoding="utf-8")
+                            )
+                        self.assertIn(
+                            fragment,
+                            slug_cache[resolved],
+                            f"Broken anchor in {rel}: {target}#{fragment}",
+                        )
 
     def test_conditional_host_transcript_schema_probe(self) -> None:
         brain_root = pathlib.Path.home() / ".gemini" / "antigravity" / "brain"
@@ -199,29 +260,8 @@ class PackageContractTests(unittest.TestCase):
             self.skipTest("No local Antigravity transcripts found for conditional host schema probe")
         candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         for tpath in candidates[:2]:
-            lines = tpath.read_text(encoding="utf-8").splitlines()
-            parsed: list[dict[str, object]] = []
-            for idx, line in enumerate(lines):
-                if not line.strip():
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    if idx == len(lines) - 1:
-                        continue
-                    raise
-                self.assertIsInstance(rec, dict)
-                step_idx = rec.get("step_index")
-                self.assertIsInstance(step_idx, int)
-                self.assertNotIsInstance(step_idx, bool)
-                self.assertGreaterEqual(step_idx, 0)
-                rec_type = rec.get("type")
-                self.assertIsInstance(rec_type, str)
-                self.assertTrue(rec_type)
-                if "truncated_fields" in rec and rec["truncated_fields"] is not None:
-                    self.assertIsInstance(rec["truncated_fields"], list)
-                parsed.append(rec)
-            self.assertGreater(len(parsed), 0, f"Zero valid JSONL records in {tpath}")
+            folded = sync_memory.fold_jsonl_file(tpath)
+            self.assertGreater(len(folded), 0, f"Zero valid JSONL records in {tpath}")
 
             proc = subprocess.run(
                 [sys.executable, str(cli_script), "check-origin", "--transcript", str(tpath)],
@@ -239,7 +279,7 @@ class PackageContractTests(unittest.TestCase):
         protocol_text = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8")
         harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
 
-        for forbidden_host_token in ("WaitMsBeforeAsync", "10000"):
+        for forbidden_host_token in ("WaitMsBeforeAsync", "10000", "manage_task"):
             self.assertNotIn(forbidden_host_token, skill_text)
             self.assertNotIn(forbidden_host_token, protocol_text)
         for forbidden_protocol_tool in (
@@ -377,10 +417,14 @@ class PackageContractTests(unittest.TestCase):
             ("Section 4 Recovery", recovery_section),
         ]:
             self.assertIn("child subagent", section, f"{section_name} missing child subagent guard")
-        self.assertIn("reactive wait", resume_section)
+        self.assertIn("waiting_for_dependents", resume_section)
         self.assertIn("descendants", recovery_section)
-        self.assertIn("reactive wait", recovery_section)
-        self.assertIn("unreturned", recovery_section)
+        self.assertIn("waiting_for_dependents", recovery_section)
+        self.assertIn("--force-spawn", harnesses_text)
+        self.assertIn("corrupt state.json", harnesses_text)
+        self.assertIn("latest parent dispatch", protocol_lower)
+        self.assertIn("last", skill_text.split("## Static Execution Tier Resolution", 1)[1].split("## `Trunk Session` Planning Turn", 1)[0].lower())
+        self.assertIn("git log --stat", skill_text)
         self.assertLess(recovery_section.index("kill"), recovery_section.index("reset"))
 
 

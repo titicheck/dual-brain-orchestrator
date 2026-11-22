@@ -1,6 +1,7 @@
 # Orchestrator Adaptation Map
 
 Label: `wayfinder:map`
+Status: implemented (v1.1.2+) — historical baseline archive; living source of truth is `skills/orchestrator/*`, `docs/adr/*`, and `tests/*`.
 
 ## Destination
 

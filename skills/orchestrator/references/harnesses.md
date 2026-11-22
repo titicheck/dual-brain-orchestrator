@@ -18,7 +18,7 @@ This document isolates all Antigravity-specific paths, tool invocations, envelop
   - Sibling subagent log template (deterministic across compactions):
     `<parent of ArtifactDir>/<subagentId>/.system_generated/logs/transcript.jsonl` (and sibling `<parent of ArtifactDir>/<subagentId>/.system_generated/logs/transcript_full.jsonl` when `truncated_fields` is present)
 - **Python Command**: `py -3` on Windows (`python3` on POSIX). Never use bare `python` on Windows.
-- **Command Ownership & Synchronous Wait Cap**: Antigravity caps `run_command` synchronous wait at `WaitMsBeforeAsync <= 10000 ms`; longer commands auto-background and deliver completion or status wakeups exclusively to the invoking session, and turn-internal polling is discouraged. Practically, `Trunk Session` completes in-turn only observational commands finishing within the synchronous window (writing longer builds, full test suites, benchmarks, and probe scripts into `<plan>`, and terminating any started command that unexpectedly does not finish before yielding), while `Execution Subagent` awaits terminal states of started commands (or terminates them before reporting) so neither session yields with a started command still running.
+- **Command Ownership & Synchronous Wait Cap**: Antigravity caps `run_command` synchronous wait at `WaitMsBeforeAsync <= 10000 ms`; longer commands auto-background and deliver completion or status wakeups exclusively to the invoking session. In `Trunk Session`, synchronous completion means returning inside one `run_command(WaitMsBeforeAsync <= 10000)` call: delegate upfront via `<plan>` any read-only command expected to exceed that window, and if any started command unexpectedly auto-backgrounds, terminate it immediately via `manage_task(Action="kill")` (never poll `manage_task(Action="status")` or schedule timers) and delegate via `<plan>`. Always invoke `sync_memory.py` with `WaitMsBeforeAsync=10000`; if `sync_memory.py` itself auto-backgrounds, kill it immediately, halt dispatch, and report the timeout to the user. Meanwhile, `Execution Subagent` awaits terminal states of started commands reactively without polling (or terminates them before reporting) so neither session yields with a started command still running.
 
 ---
 
@@ -33,23 +33,25 @@ py -3 "<SkillDir>/scripts/sync_memory.py" check-origin --transcript "<ArtifactDi
 
 ### Window Sync Before Dispatch
 ```text
-py -3 "<SkillDir>/scripts/sync_memory.py" sync --transcript "<ArtifactDir>/.system_generated/logs/transcript.jsonl" --state-dir "<ArtifactDir>/scratch/orchestrator" --tier <resolved_static_tier>
+py -3 "<SkillDir>/scripts/sync_memory.py" sync --transcript "<ArtifactDir>/.system_generated/logs/transcript.jsonl" --state-dir "<ArtifactDir>/scratch/orchestrator" --tier <resolved_static_tier> [--force-spawn]
 ```
 - Always pass explicit `--tier <resolved_static_tier>` resolved from static rule precedence (`flash` | `pro` | `flash_lite` | `inherit`).
+- Pass `--force-spawn` only on non-cancel respawns to force full-window `SPAWN_NEW` export while preserving prior valid `<report>`s from `bound_subagent_id` until `bind`.
 - If `sync` outputs `{"action": "SKIP_SUBAGENT_SESSION", ...}`, halt orchestration immediately and act as single-phase.
-- If `sync` or `reset` exits `1` due to corrupt/schema-invalid `state.json`, run `reset --purge` once before retrying `sync`.
+- Only when `sync` or `reset` exits `1` with stderr starting `error: corrupt state.json:` or `error: invalid state.json:`, run `reset --purge` once before retrying `sync` (never purge on bad CLI arguments or exit `2` I/O errors).
 
 ### Two-Phase Commit After Successful Dispatch / Continuation
 ```text
 py -3 "<SkillDir>/scripts/sync_memory.py" bind --state-dir "<ArtifactDir>/scratch/orchestrator" --subagent-id "<conversationId>"
 ```
+- If `bind` fails (exit `1`/`2` or timeout) immediately after `invoke_subagent`, run `manage_subagents(Action="kill", ConversationIds=[<conversationId>])`, halt dispatch, and report to the user.
 
 ### Recovery Reset
 ```text
 py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scratch/orchestrator" [--purge]
 ```
 - Default `reset` retires any active non-null `bound_subagent_id` in `retired_subagent_max_step` while preserving `execution_subagent_ids` and clearing active binding/watermarks.
-- Pass `--purge` only to clear corrupt `state.json` (exiting `1` on normal `sync`/`reset`).
+- Pass `--purge` strictly when `sync` or `reset` exits `1` with stderr starting `error: corrupt state.json:` or `error: invalid state.json:`.
 
 ---
 
@@ -83,7 +85,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
 3. Immediately call `sync_memory.py bind --subagent-id <conversationId>` using the returned `conversationId`, then end the turn and await reactive `<SYSTEM_MESSAGE>` wakeup without polling `manage_subagents("list")`.
 
 ### On `RESUME_EXISTING`
-1. Whenever live subagent status may be uncertain (e.g., resuming after another native subagent or background wakeup), call `manage_subagents(Action="list")` first so an `Execution Subagent` that is `"running"` (or `"idle"` without `<report>` in an active reactive wait per Section 4) is never double-messaged.
+1. Whenever live subagent status may be uncertain (e.g., resuming after another native subagent or background wakeup), call `manage_subagents(Action="list")` first so a bound `Execution Subagent` in `"running"` or `"waiting_for_dependents"` (actively running or reactively awaiting a background command, timer, or child subagent) is never double-messaged.
 2. Call `send_message(Recipient=<subagent_id>, Message=<envelope>)`:
    ```text
    [EXECUTION SUBAGENT — SINGLE PHASE]
@@ -105,11 +107,11 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
 
 ## 4. Recovery & Model Quota Errors on Antigravity
 
-- **Mid-flight user redirect or cancel**: Inspect `manage_subagents(Action="list")` and, when needed, `<bound_subagent_id>`'s `transcript.jsonl`; whenever `bound_subagent_id` has not yet returned `<report>` (whether `"running"` or `"idle"` while in a reactive wait on a background command or child subagent), call `manage_subagents(Action="kill", ConversationIds=[<id>])` (which also terminates nested descendants and deletes child `branch` workspaces) **before** `sync_memory.py reset` (and then `sync` when re-dispatching). Inspect `git status`/`git diff` (or workspace files directly outside git) and re-plan cleanly.
-- **Additive user prompt while `bound_subagent_id` is `"running"` (or `"idle"` in an active reactive wait)**: Yield to await active run completion, or `kill` + `reset` + re-plan cleanly—never nudge or double-message a subagent that is `"running"` or reactively awaiting an unreturned background command or child subagent.
-- **Silent `"idle"` or `"stopped"` without `<report>`**: Inspect `<parent of ArtifactDir>/<bound_subagent_id>/.system_generated/logs/transcript.jsonl` and workspace state first to distinguish an active reactive wait from a genuinely stalled turn (for "idle", not "stopped": if transcript shows an unreturned backgrounded command or spawned child subagent with no subsequent completion message -> active reactive wait; otherwise stalled): treat an active reactive wait identically to `"running"` (yield to await `<report>`, or `kill` + `reset` + re-plan; never nudge or double-message), and only if genuinely stalled nudge once via `send_message` asking for `<report>` or `reset -> sync (full <plan>) -> invoke_subagent -> bind`.
-- **Dead-ID `send_message` failure**: Run `reset -> sync (full self-contained <plan>) -> invoke_subagent -> bind` in the same planning turn.
-- **Quota / API error on subagent**: Inspect workspace state and child `transcript.jsonl`, then report clearly to the user—**never silently switch `Model`**.
+- **Mid-flight user redirect or cancel**: Inspect `manage_subagents(Action="list")`; whenever `bound_subagent_id` has not yet returned `<report>` (including `"running"` or `"waiting_for_dependents"`), call `manage_subagents(Action="kill", ConversationIds=[<id>])` (which cascades to nested descendants, cancels armed background tasks/timers, and deletes child `branch` workspaces) **before** `sync_memory.py reset` (and then `sync` when re-dispatching). Inspect `git status`/`git diff` (or workspace files directly outside git) and re-plan cleanly.
+- **Additive user prompt while `bound_subagent_id` is `"running"` or `"waiting_for_dependents"`**: Yield to await active run completion, or `kill` + `reset` + re-plan cleanly—never nudge or double-message an active or reactively waiting subagent.
+- **Quota / API error check first (before any stall recovery or respawn)**: Whenever `bound_subagent_id` is `"idle"` or `"stopped"` without `<report>` (or fails on `send_message`), inspect `<parent of ArtifactDir>/<bound_subagent_id>/.system_generated/logs/transcript.jsonl` (if present) and workspace state first. If the child aborted on a quota, capacity, or API error, report clearly to the user and stop—**never silently switch `Model` and never respawn**.
+- **Stalled `"idle"` or `"stopped"` without `<report>` (no quota/API error)**: Because Antigravity natively reports `"waiting_for_dependents"` whenever a subagent has an unreturned background command, timer, or child subagent, an `"idle"` or `"stopped"` subagent without `<report>` has no pending async work. If `"idle"`, nudge once via `send_message` asking for `<report>`, or respawn cleanly via `manage_subagents(Action="kill", ConversationIds=[<id>]) -> sync --force-spawn --tier <resolved_static_tier> (full <plan>) -> invoke_subagent -> bind`. If `"stopped"`, respawn directly via `sync --force-spawn --tier <resolved_static_tier> (full <plan>) -> invoke_subagent -> bind` (preserving prior valid `<report>`s).
+- **Dead-ID `send_message` failure (no quota/API error)**: Run `sync --force-spawn --tier <resolved_static_tier> (full self-contained <plan>) -> invoke_subagent -> bind` in the same planning turn (preserving prior valid `<report>`s).
 
 ---
 
