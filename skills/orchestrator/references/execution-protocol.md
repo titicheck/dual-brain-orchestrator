@@ -1,6 +1,6 @@
 # Single-Phase Execution Subagent Protocol
 
-This document defines the harness-neutral contract executed by an `Execution Subagent` operating in single-phase Execution Mode (preserving Official Orchestrator Parts 4, 5, and adapted Part 6).
+This document defines the harness-neutral contract executed by an `Execution Subagent` operating in single-phase Execution Mode (preserving Official Orchestrator Parts 4 and 5).
 
 ---
 
@@ -36,14 +36,9 @@ Stop plan work immediately, terminate any still-running command or child subagen
 4. Continuing requires **editing files or doing work** the plan did not name;
 5. Any sign listed in the plan's own **`Re-plan if:`** section appears.
 
-## 5. Best-Effort ~30-Turn Scheduled Review Cadence (Adapted Part 6)
+## 5. Five-Part `<report>...</report>` Return Contract
 
-- Keep a best-effort mental count of execution turns / tool invocations within each dispatch.
-- Around roughly **30 turns** on a long multi-step `<plan>`, pause cleanly after a safe boundary and send an interim five-part status `<report>...</report>` back to the parent `Trunk Session` so it can review progress and dispatch the remaining or updated steps. A still-running command or child subagent is never a safe boundary for pausing to send an interim `<report>`.
-
-## 6. Five-Part `<report>...</report>` Return Contract
-
-Every exit—verified completion, ~30-turn checkpoint, or any of the five early hand-back triggers (never while a command or child subagent you started is still running; awaiting an active command or child subagent is not an exit)—must send `<report>...</report>` back to the parent `Trunk Session` through the harness parent-messaging tool (never emit plain assistant text alone without calling the parent-messaging tool):
+Return one concise five-part `<report>...</report>` whenever finishing verified or hitting any of the five early hand-back triggers (never while any started command or child subagent is still running; awaiting an active command or child subagent is not an exit—await background completion reactively without polling or timers, or terminate it first on an early hand-back) through the harness parent-messaging tool (never emit plain assistant text alone without calling the parent-messaging tool):
 
 ```text
 <report>

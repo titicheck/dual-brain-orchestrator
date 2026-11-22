@@ -1,6 +1,6 @@
 # Orchestrator
 
-Dual-phase orchestration package optimized in V1 for Antigravity single-model sessions (with a reserved adapter seam for future client harnesses) where a planning `Trunk Session` and a single strongly-bound native `Execution Subagent` logically form one unified primary agent through `Living Memory Window` inheritance, orthogonal to ordinary native subagents.
+Dual-phase orchestration package optimized in V1 for Antigravity single-model sessions (with a reserved adapter seam for future client harnesses) where a planning `Trunk Session` and a stateless per-dispatch native `Execution Subagent` logically form one unified primary agent through `Living Memory Window` snapshot inheritance, orthogonal to ordinary native subagents.
 
 ## Language
 
@@ -17,5 +17,5 @@ A fresh-context subset within the orthogonal native subagent layer (such as blin
 _Avoid_: Execution Subagent, Right Brain
 
 **Living Memory Window**:
-The active, compaction-bounded span of canonical `Trunk Session` dialogue, compaction summaries, and prior execution `<report>`s currently visible to the Trunk model, inherited on `Execution Subagent` creation and extended incrementally until the next `Execution Subagent` rotation (Trunk compaction, rewind, tier change, respawn, or expected-cost rotation).
+The active, compaction-bounded span of canonical `Trunk Session` dialogue, compaction summaries, and prior execution `<report>`s currently visible to the Trunk model, inherited cleanly as a stateless per-dispatch snapshot `[latest CHECKPOINT .. current Trunk step]` on each `Execution Subagent` spawn (`N_max = 1`).
 _Avoid_: Full raw history, hand-written summary

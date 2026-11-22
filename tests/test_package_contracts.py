@@ -93,7 +93,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("skills", data)
         self.assertLessEqual(set(data.keys()), {"name", "version", "description", "repository"})
         self.assertTrue(SKILL_MD.is_file(), "skills/orchestrator/SKILL.md must exist")
-        self.assertEqual(data.get("version"), "1.2.1")
+        self.assertEqual(data.get("version"), "2.0.0")
         self.assertIsInstance(data.get("description"), str)
         self.assertTrue(data["description"].strip())
 
@@ -316,23 +316,21 @@ class PackageContractTests(unittest.TestCase):
             "terminal state",
             "terminate any still-running command",
             "not an exit",
-            "never a safe boundary",
             "polling timers",
             "poll task status",
         ):
             self.assertIn(marker, protocol_lower)
+        self.assertNotIn("~30", protocol_lower)
 
         sec1 = harnesses_text.split("## 2.", 1)[0]
         self.assertIn("WaitMsBeforeAsync <= 10000 ms", sec1)
         self.assertIn("transcript_full.jsonl", sec1)
-        spawn_section = harnesses_text.split("### On `SPAWN_NEW`", 1)[1].split("### On `RESUME_EXISTING`", 1)[0].lower()
-        resume_section = harnesses_text.split("### On `RESUME_EXISTING`", 1)[1].split("## 4. Recovery", 1)[0].lower()
-        for section in (spawn_section, resume_section):
-            self.assertIn("terminal state", section)
-            self.assertIn("still-running", section)
-            self.assertIn("not an exit", section)
-            self.assertIn("without polling", section)
-            self.assertIn("terminat", section.lower())
+        handshake_section = harnesses_text.split("## 3. Antigravity Dispatch Handshake", 1)[1].split("## 4. Recovery", 1)[0].lower()
+        self.assertIn("terminal state", handshake_section)
+        self.assertIn("still-running", handshake_section)
+        self.assertIn("not an exit", handshake_section)
+        self.assertIn("without polling", handshake_section)
+        self.assertIn("terminat", handshake_section)
 
     def test_adoption_snippets_follow_ssot_thin_pointer_contract(self) -> None:
         readme_zh = REPO_ROOT / "README.zh-CN.md"
@@ -398,30 +396,27 @@ class PackageContractTests(unittest.TestCase):
             self.assertIn(marker, protocol_lower)
         sec2 = protocol_lower.split("## 2.", 1)[1].split("## 3.", 1)[0]
         sec4 = protocol_lower.split("## 4.", 1)[1].split("## 5.", 1)[0]
-        sec5 = protocol_lower.split("## 5.", 1)[1].split("## 6.", 1)[0]
-        sec6 = protocol_lower.split("## 6.", 1)[1]
+        sec5 = protocol_lower.split("## 5.", 1)[1]
         for sec_name, sec_text in [
             ("Section 2", sec2),
             ("Section 4", sec4),
             ("Section 5", sec5),
-            ("Section 6", sec6),
         ]:
             self.assertIn("child subagent", sec_text, f"{sec_name} missing child subagent parity")
-        self.assertIn("living memory window", sec6)
+        self.assertIn("living memory window", sec5)
 
-        spawn_section = harnesses_text.split("### On `SPAWN_NEW`", 1)[1].split("### On `RESUME_EXISTING`", 1)[0].lower()
-        resume_section = harnesses_text.split("### On `RESUME_EXISTING`", 1)[1].split("## 4. Recovery", 1)[0].lower()
+        handshake_section = harnesses_text.split("## 3. Antigravity Dispatch Handshake", 1)[1].split("## 4. Recovery", 1)[0].lower()
         recovery_section = harnesses_text.split("## 4. Recovery", 1)[1].split("## 5. Future Client", 1)[0].lower()
         for section_name, section in [
-            ("On SPAWN_NEW", spawn_section),
-            ("On RESUME_EXISTING", resume_section),
+            ("Dispatch Handshake", handshake_section),
             ("Section 4 Recovery", recovery_section),
         ]:
             self.assertIn("child subagent", section, f"{section_name} missing child subagent guard")
-        self.assertIn("waiting_for_dependents", resume_section)
+        self.assertIn("waiting_for_dependents", handshake_section)
         self.assertIn("descendants", recovery_section)
         self.assertIn("waiting_for_dependents", recovery_section)
-        self.assertIn("--force-spawn", harnesses_text)
+        self.assertNotIn("--force-spawn", harnesses_text)
+        self.assertNotIn("RESUME_EXISTING", harnesses_text)
         self.assertIn("corrupt state.json", harnesses_text)
         self.assertIn("latest parent dispatch", protocol_lower)
         self.assertIn("last", skill_text.split("## Static Execution Tier Resolution", 1)[1].split("## `Trunk Session` Planning Turn", 1)[0].lower())
@@ -430,41 +425,32 @@ class PackageContractTests(unittest.TestCase):
 
     def test_v114_compaction_reread_and_failure_excerpt_cap(self) -> None:
         harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
-        spawn_section = (
-            harnesses_text.split("### On `SPAWN_NEW`", 1)[1]
-            .split("### On `RESUME_EXISTING`", 1)[0]
-            .lower()
-        )
-        resume_section = (
-            harnesses_text.split("### On `RESUME_EXISTING`", 1)[1]
+        handshake_section = (
+            harnesses_text.split("## 3. Antigravity Dispatch Handshake", 1)[1]
             .split("## 4. Recovery", 1)[0]
             .lower()
         )
-        for section_name, section in [
-            ("On SPAWN_NEW", spawn_section),
-            ("On RESUME_EXISTING", resume_section),
-        ]:
-            for marker in (
-                "<skilldir>/references/execution-protocol.md",
-                "# resuming from a compaction",
-                "if not yet re-read since that summary",
-            ):
-                self.assertIn(
-                    marker,
-                    section,
-                    f"{section_name} missing v1.1.4 compaction re-read clause: {marker}",
-                )
+        for marker in (
+            "<skilldir>/references/execution-protocol.md",
+            "# resuming from a compaction",
+            "if not yet re-read since that summary",
+        ):
+            self.assertIn(
+                marker,
+                handshake_section,
+                f"Dispatch Handshake missing compaction re-read clause: {marker}",
+            )
 
-        protocol_sec6 = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8").split("## 6.", 1)[1].lower()
-        self.assertIn("<=15 verbatim lines", protocol_sec6)
-        self.assertIn("first error + final summary", protocol_sec6)
+        protocol_sec5 = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8").split("## 5.", 1)[1].lower()
+        self.assertIn("<=15 verbatim lines", protocol_sec5)
+        self.assertIn("first error + final summary", protocol_sec5)
 
         spawn_match = re.search(
-            r"### On `SPAWN_NEW`.*?```text\r?\n(.*?)\r?\n\s*```",
+            r"## 3\. Antigravity Dispatch Handshake.*?```text\r?\n(.*?)\r?\n\s*```",
             harnesses_text,
             re.DOTALL,
         )
-        self.assertIsNotNone(spawn_match, "SPAWN_NEW fenced envelope not found")
+        self.assertIsNotNone(spawn_match, "Dispatch Handshake fenced envelope not found")
         spawn_envelope = textwrap.dedent(spawn_match.group(1)).replace(
             "<SkillDir>",
             "/users/example-user/.gemini/config/plugins/orchestrator/skills/orchestrator-dir",
@@ -479,70 +465,48 @@ class PackageContractTests(unittest.TestCase):
             600,
             f"SPAWN_NEW re-read clause byte offset {end_offset} >= 600",
         )
-        self.assertLess(
-            resume_section.index("never plain text alone"),
-            resume_section.index("# resuming from a compaction"),
-        )
 
-        resume_match = re.search(
-            r"### On `RESUME_EXISTING`.*?```text\r?\n(.*?)\r?\n\s*```",
-            harnesses_text,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(resume_match, "RESUME_EXISTING fenced envelope not found")
-        sample_page = (
-            "/users/example-user/.gemini/antigravity/brain/"
-            "01234567-89ab-cdef-0123-456789abcdef/scratch/orchestrator/pages/page_001.md"
-        )
-        resume_envelope = (
-            textwrap.dedent(resume_match.group(1))
-            .replace(
-                "<SkillDir>",
-                "/users/example-user/.gemini/config/plugins/orchestrator/skills/orchestrator-dir",
-            )
-            .replace(
-                '<ordered page paths if delta_empty == false, else "(delta empty)">',
-                sample_page,
-            )
-        )
-        resume_marker = "(never plain text alone)"
-        self.assertIn(resume_marker, resume_envelope)
-        resume_offset = len(
-            resume_envelope[
-                : resume_envelope.index(resume_marker) + len(resume_marker)
-            ].encode("utf-8")
-        )
-        self.assertLess(
-            resume_offset,
-            1100,
-            f"RESUME_EXISTING (never plain text alone) byte offset {resume_offset} >= 1100",
-        )
-
-    def test_v120_cost_rotation_contracts(self) -> None:
+    def test_v200_stateless_always_new_contracts(self) -> None:
         skill_text = SKILL_MD.read_text(encoding="utf-8")
         skill_lower = skill_text.lower()
         self.assertIn("skip redundant", skill_lower)
-        self.assertIn("cost-rotation", skill_lower)
         self.assertRegex(
             skill_lower,
             re.compile(r"prior `<plan>` bodies[^\n]*never exported to `pages/page_\*\.md`"),
         )
+        self.assertIn("already failed", skill_lower)
+        self.assertIn("invoke_subagent", skill_text)
+        self.assertIn("manage_subagents", skill_text)
+        self.assertNotIn("RESUME_EXISTING", skill_text)
+        self.assertNotIn("--force-spawn", skill_text)
+        self.assertNotIn("--tier", skill_text)
 
         harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
-        self.assertIn("--subagent-transcript", harnesses_text)
-        self.assertIn("retired_subagent_id", harnesses_text)
-        spawn_section = harnesses_text.split("### On `SPAWN_NEW`", 1)[1].split("### On `RESUME_EXISTING`", 1)[0]
-        self.assertIn('manage_subagents(Action="kill", ConversationIds=[<retired_subagent_id>])', spawn_section)
-        self.assertIn("never spend a dedicated extra post-`bind`", spawn_section)
-        self.assertIn("otherwise apply §4 first", spawn_section)
+        self.assertNotIn("RESUME_EXISTING", harnesses_text)
+        self.assertNotIn("--force-spawn", harnesses_text)
+        self.assertNotIn("--subagent-transcript", harnesses_text)
+        self.assertNotIn("~30", harnesses_text)
+        handshake = harnesses_text.split("## 3. Antigravity Dispatch Handshake", 1)[1].split("## 4. Recovery", 1)[0]
+        self.assertIn('manage_subagents(Action="list")', handshake)
+        self.assertIn("retired_subagent_id", handshake)
+        self.assertIn('manage_subagents(Action="kill", ConversationIds=[<retired_subagent_id>])', handshake)
+        self.assertIn("never spend a dedicated extra post-`bind`", handshake)
+        self.assertIn("otherwise apply §4 first", handshake)
+
+        recovery = harnesses_text.split("## 4. Recovery", 1)[1].split("## 5. Future Client", 1)[0].lower()
+        self.assertIn("never respawn", recovery)
+        self.assertIn("plain-text `<report>`", recovery)
 
         sync_src = (SCRIPTS_DIR / "sync_memory.py").read_text(encoding="utf-8")
-        self.assertNotIn("import datetime", sync_src)
-        self.assertNotIn("from datetime", sync_src)
-        self.assertNotIn("time.time", sync_src)
-        self.assertEqual(sync_memory.COST_KEEP_MULT, 0.60)
-        self.assertEqual(sync_memory.COST_SPAWN_MULT, 1.55)
-        self.assertEqual(sync_memory.COST_SWITCH_FIXED_TOKENS, 15_000.0)
+        for removed in (
+            "RESUME_EXISTING",
+            "should_rotate_for_cost",
+            "import hashlib",
+            "import datetime",
+            "from datetime",
+            "time.time",
+        ):
+            self.assertNotIn(removed, sync_src)
 
 
 if __name__ == "__main__":

@@ -50,9 +50,9 @@ orchestrator-tier: pro
 ## 架构与跨客户端扩展边界
 
 - [skills/orchestrator/SKILL.md](skills/orchestrator/SKILL.md) — `Trunk Session` 控制循环、有序准入闸门（Entry Gate）、三路入站路由、Official Part 2 规划与 Part 7 `[plan review]`。
-- [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — 与宿主解耦的单阶段 `Execution Subagent` 执行协议（Official Parts 4、5 及适配的 Part 6）。
-- [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 宿主绑定（`invoke_subagent`、`send_message`、`manage_subagents`、同级 `logAbsoluteUri`、`sync_memory.py` CLI）及面向 Claude Code / Codex 的预留未来客户端适配接缝。
-- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — 零第三方依赖的 Python 3 标准库同步 CLI（`check-origin`、`sync`、`bind`、`reset`）以及无时钟期望成本 `Execution Subagent` 轮换。
+- [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — 与宿主解耦的单阶段 `Execution Subagent` 执行协议（Official Parts 4 与 5）。
+- [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 宿主绑定（`invoke_subagent`、`manage_subagents`、同级 `logAbsoluteUri`、`sync_memory.py` CLI）及面向 Claude Code / Codex 的预留未来客户端适配接缝。
+- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — 零第三方依赖的 Python 3 标准库同步 CLI（`check-origin`、`sync`、`bind`、`reset`），在每次派发时导出无状态 `Always-New` 当前纪元 `Living Memory Window` 快照（`N_max = 1`）。
 
 ---
 
@@ -71,5 +71,5 @@ py -3 -m unittest discover -s tests -v
 
 1. **无条件退让原生 Orchestrator**：在暴露精确小写 `exit_plan_mode` / `enter_plan_mode` 的 `Orchestrator (Carbon)` / `Orchestrator (Neon)` / `Orchestrator (Argon)` 会话中触发编码任务与 `/orchestrator ...`；确认原生同线程热切换完整运行，且零 `sync_memory.py` 调用、零额外派发 `Execution Subagent`。
 2. **防递归、压缩后纯问答直答与三路路由**：确认子代理（含 `Execution Subagent` 嵌套子代理）与 `[swarm]`/`[board]` worker 在实时会话及压缩后均保持单阶段（`check-origin` 对 `"SUBAGENT"` 或 `"UNKNOWN"` 故障闭锁），压缩后的纯问答回合零 `sync_memory.py` 调用与写盘，非绑定原生子代理的 `[Message]` 回复保留在 `Trunk Session`，以及被取代的孤儿 `Execution Subagent` 被忽略/终止。
-3. **静态档位锁与 Approve-First / `[plan review]` 连续性**：确认共享规则接入与未配置 `/orchestrator` 锁定在 `"flash"`（忽略对话中的 `"use pro"`），在工作区 `AGENTS.md` 添加 `orchestrator-tier: pro` 会触发 `tier != bound_tier` 的 `SPAWN_NEW` 轮换，且 Approve-First / 中途取消 / `[plan review]` 均平稳衔接不丢失活跃状态。
+3. **静态档位锁与 Approve-First / `[plan review]` 连续性**：确认共享规则接入与未配置 `/orchestrator` 锁定在 `"flash"`（忽略对话中的 `"use pro"`），在工作区 `AGENTS.md` 添加 `orchestrator-tier: pro` 会在下一次无状态 `Execution Subagent` 派发时立即生效，且 Approve-First / 中途取消 / `[plan review]` 均平稳衔接不丢失活跃状态。
 4. **正交原生子代理与计划内嵌套委派**：在运行 `flash` 档 `Execution Subagent` 的前沿单模型 `Trunk Session` 中，确认 `Trunk Session` 上的只读 `Isolated Subagent`（`egm-*` / `research` / `code-review`）以及 `Execution Subagent` 内部派生的计划内原生子代理均零 `Living Memory Window` 注入、完全不受 `orchestrator-tier:` 影响，并遵循各自原生的工作区/插件/任务档位规则。

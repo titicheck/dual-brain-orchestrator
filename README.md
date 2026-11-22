@@ -25,7 +25,7 @@ Add this snippet once in your shared engineering library `AGENTS.md` (or `~/.gem
 ```markdown
 ## Orchestrator
 
-Load `orchestrator` (`SKILL.md`) only in top-level human-originated (including post-compaction) single-model sessions—without exact lowercase `exit_plan_mode`/`enter_plan_mode` and outside `/swarm`—when planning or executing tasks that modify files, state, or external side effects, or when resuming the bound `Execution Subagent`. Lock the bound `Execution Subagent` tier strictly to static `orchestrator-tier:` rules (conversational model requests never override it; override per project in workspace `AGENTS.md`).
+Load `orchestrator` (`SKILL.md`) only in top-level human-originated (including post-compaction) single-model sessions—without exact lowercase `exit_plan_mode`/`enter_plan_mode` and outside `/swarm`—when planning or executing tasks that modify files, state, or external side effects, or when handling a bound `Execution Subagent` report. Lock the bound `Execution Subagent` tier strictly to static `orchestrator-tier:` rules (conversational model requests never override it; override per project in workspace `AGENTS.md`).
 
 orchestrator-tier: flash
 ```
@@ -50,9 +50,9 @@ orchestrator-tier: pro
 ## Architecture & Future Client Extension Boundary
 
 - [skills/orchestrator/SKILL.md](skills/orchestrator/SKILL.md) — `Trunk Session` control loop, ordered Entry Gate, Three-Way Routing, Official Part 2 Planning & Part 7 `[plan review]`.
-- [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — Harness-neutral single-phase `Execution Subagent` rules (Official Parts 4, 5, and adapted Part 6).
-- [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 bindings (`invoke_subagent`, `send_message`, `manage_subagents`, sibling `logAbsoluteUri`, `sync_memory.py` CLI) and reserved Future Client Adapter Seam for Claude Code / Codex when targeted.
-- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — Zero-dependency Python 3 standard-library CLI (`check-origin`, `sync`, `bind`, `reset`), and clock-free expected-cost `Execution Subagent` rotation.
+- [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — Harness-neutral single-phase `Execution Subagent` rules (Official Parts 4 and 5).
+- [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 bindings (`invoke_subagent`, `manage_subagents`, sibling `logAbsoluteUri`, `sync_memory.py` CLI) and reserved Future Client Adapter Seam for Claude Code / Codex when targeted.
+- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — Zero-dependency Python 3 standard-library CLI (`check-origin`, `sync`, `bind`, `reset`) exporting stateless `Always-New` active-epoch `Living Memory Window` snapshots (`N_max = 1`).
 
 ---
 
@@ -71,5 +71,5 @@ Run these 4 interactive Antigravity checks on V1 and compare side-by-side agains
 
 1. **Unconditional Native Orchestrator Deference**: Inside an `Orchestrator (Carbon)` / `Orchestrator (Neon)` / `Orchestrator (Argon)` session exposing exact lowercase `exit_plan_mode` / `enter_plan_mode`, invoke a coding task and `/orchestrator ...`; confirm native same-thread hot-swap runs untouched with zero `sync_memory.py` calls or spawned `Execution Subagent`.
 2. **Non-Recursion, Post-Compaction Q&A, & Three-Way Routing**: Confirm child subagents (including nested `Execution Subagent` workers) and `[swarm]`/`[board]` workers stay single-phase across live and compacted sessions (`check-origin` fail-closed on `"SUBAGENT"` or `"UNKNOWN"`), pure Q&A turns post-compaction execute zero `sync_memory.py` calls or disk writes, non-bound native subagent `[Message]` replies stay on `Trunk Session`, and orphaned superseded `Execution Subagents` are ignored/killed.
-3. **Static Tier Lock & Continuity Across Approve-First / `[plan review]`**: Confirm shared-library adoption and unconfigured `/orchestrator` lock to `"flash"` (ignoring `"use pro"` in chat), adding `orchestrator-tier: pro` in workspace `AGENTS.md` triggers `tier != bound_tier` `SPAWN_NEW` rotation, and Approve-First / mid-flight cancel / `[plan review]` continue smoothly without losing active state.
+3. **Static Tier Lock & Continuity Across Approve-First / `[plan review]`**: Confirm shared-library adoption and unconfigured `/orchestrator` lock to `"flash"` (ignoring `"use pro"` in chat), adding `orchestrator-tier: pro` in workspace `AGENTS.md` takes effect immediately on the next stateless `Execution Subagent` dispatch, and Approve-First / mid-flight cancel / `[plan review]` continue smoothly without losing active state.
 4. **Orthogonal Native Subagents & In-Plan Child Delegation**: From a frontier single-model `Trunk Session` running `Execution Subagent` on `flash`, confirm read-only `Isolated Subagents` (`egm-*`, `research`, `code-review`) on `Trunk Session` and in-plan native child subagents inside `Execution Subagent` receive zero `Living Memory Window` injection, remain untouched by `orchestrator-tier:`, and obey native workspace/plugin/task tier rules.
