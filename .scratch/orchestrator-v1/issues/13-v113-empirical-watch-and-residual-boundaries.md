@@ -8,7 +8,7 @@
 
 **Status:** needs-triage
 
-**References:** [01-official-orchestrator-system.md](../../../docs/research/01-official-orchestrator-system.md) | [03-ab-benchmark-and-kv-cache-telemetry.md](../../../docs/research/03-ab-benchmark-and-kv-cache-telemetry.md) | [05-production-telemetry-ttl-and-lifecycle-audit.md](../../../docs/research/05-production-telemetry-ttl-and-lifecycle-audit.md) | [ADR-0001](../../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md) | [ADR-0004](../../../docs/adr/0004-coexistence-boundaries-and-foreman-subagent-delegation.md) | [Ticket 07](07-bidirectional-execution-subagent-lifecycle-rotation.md) | [Ticket 11](11-dual-brain-vs-native-subagent-boundary.md) | [Ticket 12](12-full-repo-audit-hardening-and-official-alignment.md)
+**References:** [01-official-orchestrator-system.md](../../../docs/research/01-official-orchestrator-system.md) | [03-ab-benchmark-and-kv-cache-telemetry.md](../../../docs/research/03-ab-benchmark-and-kv-cache-telemetry.md) | [05-production-telemetry-ttl-and-lifecycle-audit.md](../../../docs/research/05-production-telemetry-ttl-and-lifecycle-audit.md) | [ADR-0001](../../../docs/adr/0001-unified-subagent-report-return-into-plan-review.md) | [ADR-0004](../../../docs/adr/0004-coexistence-boundaries-and-foreman-subagent-delegation.md) | [Ticket 07](07-bidirectional-execution-subagent-lifecycle-rotation.md) | [Ticket 11](11-dual-brain-vs-native-subagent-boundary.md) | [Ticket 12](12-full-repo-audit-hardening-and-official-alignment.md) | [Ticket 14](14-v113-vs-official-vs-v111-full-scenario-evaluation.md)
 
 ## Baseline Anchors (Same `usage-monitor` Dataset, Normalized to `L0-4` `1,074` Steps / `1,603K` Output)
 
@@ -40,6 +40,16 @@
 3. Engine invariants: aggregate `cache hit >= 93%`, `schedule = 0`, `manage_task(status) = 0`, `0` Trunk background command leaks, `sync_memory.py` runtime `< 2s`.
 4. Effective output unit cost `$/1k out` (compare vs `L0-4` `$0.0413` and Official `L0-1` `$0.0329`) and `>200K = 2x` weighted spend.
 
+### Capability & Rework Falsification Metrics (`M1-M6`, per [Ticket 14](14-v113-vs-official-vs-v111-full-scenario-evaluation.md))
+
+1. **`M1` (Net Rework & Re-Plan Ratio):** `Exit 2 / Total [plan review]` and `%` execution steps spent reverting/fixing prior waves (falsification trigger: `> 25%` rework share erasing `S8a` `+25.8%` buffer, or `Exit 2 > 30%`).
+2. **`M2` (Tier-1 Verification Escape Rate):** Audit wave-boundary test diffs (`skip`/`xfail`/`inspect.getsource`/weakened asserts) and child `transcript.jsonl` exit codes vs `<report> §2-§3` (falsification trigger: `>= 1` undisclosed false-green escape -> add transcript exit-code check to Tier 1).
+3. **`M3` (`depth=2` Activation vs Merge-Defect Rate):** Track `delegated / eligible DAG waves` alongside cross-slice merge/interface fix rounds (falsification trigger: activation `< 30%` on explicit DAGs, **or** merge rework `> 20%` -> escalate foreman to `orchestrator-tier: pro`).
+4. **`M4` (Soft-Constraint Compliance Decay & Cadence Runaway):** Track p50/p95/max tool calls between consecutive `<report>`s (baseline `L0-4` max was `446`), child `CHECKPOINT`s per dispatch, `Re-plan if:` retention post-compaction, and Trigger #1 (`>= 3` identical retries) violations (falsification trigger: p95 `> 45` with drift, or `>= 2x` violation jump past child `CHECKPOINT >= 2` -> reopen [Ticket 07](07-bidirectional-execution-subagent-lifecycle-rotation.md)).
+5. **`M5` (Post-Wave Defect Density & Tier-1 Review Discipline):** Count `P0/P1` bugs found by independent Route 3 `code-review`/`egm-*`/`/swarm` per `1k` changed LOC (`> 25%` above `L0-4`/`L0-1` triggers investigation) and Trunk `read_file` count per clean Tier-1 review (`> 2` signals Trunk over-reading).
+6. **`M6` (Steering Friction & Recovery Blast Radius):** Track `%` spend discarded on mid-flight `kill + reset` (`> 10%` trigger), stall recoveries per `1k` steps (`>= 2` trigger), and `S1` 1-line side-effect edit latency ratio vs Official.
+
 ## Comments
 
 - 2026-11-22 (Intake): Opened at `needs-triage` immediately following `v1.1.3` verification (`2d2b926`) to record theoretical residual boundaries, the empirical fleet-wide no-heartbeat KV-cache audit, and `L0-5` empirical watch metrics without making speculative pre-telemetry changes.
+- 2026-11-22 (Ticket 14 Cross-Link): Added capability & rework falsification metrics (`M1-M6`) derived from the 3-model full-corpus audit in [Ticket 14](14-v113-vs-official-vs-v111-full-scenario-evaluation.md) so `L0-5` validates quality alongside quota.
