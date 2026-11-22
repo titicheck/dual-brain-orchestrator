@@ -1,6 +1,6 @@
 # Orchestrator V1 Specification
 
-Status: implemented (v1.1.2+) — historical baseline archive; living source of truth is `skills/orchestrator/*`, `docs/adr/*`, and `tests/*`.
+Status: archived (frozen at v1.1.2 -- superseded by v1.1.3-v1.2.1; living source of truth is `skills/orchestrator/*`, `docs/adr/*`, and `tests/*`).
 
 ## Problem Statement
 

@@ -1473,6 +1473,128 @@ class Slice6CostRotationTests(unittest.TestCase):
             b3 = json.loads(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-new").stdout)
             self.assertEqual(b3, {"status": "bound", "subagent_id": "exec-new"})
 
+    def test_9_lmw_bytes_persistence_guards_c1_truncated_step0_and_reset_pop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-lmw")
+            c_path = t_path.with_name("transcript_full.jsonl")
+            s_dir = root / "trunk-lmw" / "scratch" / "orchestrator"
+
+            compact_step0 = {
+                "step_index": 0,
+                "type": "USER_INPUT",
+                "created_at": "t0",
+                "content": "C " * 1_000,
+                "truncated_fields": ["content"],
+            }
+            full_step0 = {
+                "step_index": 0,
+                "type": "USER_INPUT",
+                "created_at": "t0",
+                "content": "F " * 80_000,
+            }
+            write_jsonl(t_path, [compact_step0])
+            write_jsonl(c_path, [full_step0])
+            self.assertEqual(run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir)).returncode, 0)
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-lmw").returncode, 0)
+
+            state_path = s_dir / "state.json"
+            bound_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(bound_state["lmw_bytes"], 150_000)
+
+            # Remove companion so compact fallback alone would yield ~2 KB; persisted lmw_bytes keeps RESUME_EXISTING
+            c_path.unlink()
+            write_jsonl(
+                self._make_antigravity_log(root, "exec-lmw"),
+                [{"step_index": 0, "type": "GENERIC", "content": "g" * 240_000}],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    compact_step0,
+                    {"step_index": 1, "type": "SYSTEM_MESSAGE", "created_at": "t1", "content": self._report_msg("exec-lmw", "Done")},
+                    {"step_index": 2, "type": "USER_INPUT", "created_at": "t2", "content": "Follow-up"},
+                ],
+            )
+            res = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(json.loads(res.stdout)["action"], "RESUME_EXISTING")
+
+            # reset sets lmw_bytes == 0
+            self.assertEqual(run_cli("reset", "--state-dir", str(s_dir)).returncode, 0)
+            reset_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(reset_state["lmw_bytes"], 0)
+
+            # bind with legacy pending_sync missing lmw_bytes pops stale state["lmw_bytes"]
+            stale_state = dict(bound_state)
+            stale_state["lmw_bytes"] = 123_456
+            stale_state["pending_sync"] = {
+                "tier": "flash",
+                "checkpoint_step": -1,
+                "synced_through": 2,
+                "prefix_digest": bound_state["prefix_digest"],
+            }
+            state_path.write_text(json.dumps(stale_state), encoding="utf-8", newline="\n")
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-lmw").returncode, 0)
+            after_leg_bind = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertNotIn("lmw_bytes", after_leg_bind)
+
+            # Invalid pending_sync.lmw_bytes (bool or negative) fails validation with exit 1
+            for bad_val in (True, -1):
+                bad_state = dict(bound_state)
+                bad_state["pending_sync"] = {
+                    "tier": "flash",
+                    "checkpoint_step": -1,
+                    "synced_through": 0,
+                    "prefix_digest": "",
+                    "lmw_bytes": bad_val,
+                }
+                state_path.write_text(json.dumps(bad_state), encoding="utf-8", newline="\n")
+                bad_res = run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "exec-lmw")
+                self.assertEqual(bad_res.returncode, 1)
+                self.assertIn("error: invalid state.json:", bad_res.stderr)
+
+    def test_10_turn1_empty_grace_followed_by_large_child_rotates_on_turn2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            t_path = self._make_antigravity_log(root, "trunk-grace")
+            t_path.parent.mkdir(parents=True, exist_ok=True)
+            s_dir = root / "trunk-grace" / "scratch" / "orchestrator"
+
+            # Turn 1: empty-transcript grace -> SPAWN_NEW + bind(sub-1) leaves last_synced_step == -1
+            p1 = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(p1.returncode, 0, p1.stderr)
+            out1 = json.loads(p1.stdout)
+            self.assertEqual(out1["action"], "SPAWN_NEW")
+            self.assertEqual(out1["synced_through"], -1)
+            self.assertEqual(run_cli("bind", "--state-dir", str(s_dir), "--subagent-id", "sub-1").returncode, 0)
+            self.assertEqual(json.loads((s_dir / "state.json").read_text(encoding="utf-8"))["last_synced_step"], -1)
+
+            # Flush Turn 1 + sub-1 <report> + 220 KB child log -> Turn 2 must rotate SPAWN_NEW
+            write_jsonl(
+                self._make_antigravity_log(root, "sub-1"),
+                [{"step_index": 0, "type": "GENERIC", "content": "r" * 220_000}],
+            )
+            write_jsonl(
+                t_path,
+                [
+                    {"step_index": 0, "type": "USER_INPUT", "created_at": "t0", "content": "TURN1_GOAL"},
+                    {"step_index": 1, "type": "PLANNER_RESPONSE", "created_at": "t1", "content": "TURN1_PLAN"},
+                    {"step_index": 2, "type": "SYSTEM_MESSAGE", "created_at": "t2", "content": self._report_msg("sub-1", "TURN1_REPORT")},
+                    {"step_index": 3, "type": "USER_INPUT", "created_at": "t3", "content": "TURN2_FOLLOWUP"},
+                ],
+            )
+            p2 = run_cli("sync", "--transcript", str(t_path), "--state-dir", str(s_dir))
+            self.assertEqual(p2.returncode, 0, p2.stderr)
+            out2 = json.loads(p2.stdout)
+            self.assertEqual(out2["action"], "SPAWN_NEW")
+            self.assertIsNone(out2["subagent_id"])
+            self.assertTrue(out2["pages"], "SPAWN_NEW after Turn-1 grace must emit non-empty pages")
+            page_txt = pathlib.Path(out2["pages"][0]).read_text(encoding="utf-8")
+            self.assertIn("TURN1_GOAL", page_txt)
+            self.assertIn("TURN1_REPORT", page_txt)
+            self.assertIn("TURN2_FOLLOWUP", page_txt)
+
 
 if __name__ == "__main__":
     unittest.main()

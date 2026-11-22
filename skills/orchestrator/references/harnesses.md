@@ -37,7 +37,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" sync --transcript "<ArtifactDir>/.syst
 ```
 - Always pass explicit `--tier <resolved_static_tier>` resolved from static rule precedence (`flash` | `pro` | `flash_lite` | `inherit`).
 - Pass `--force-spawn` only on non-cancel respawns to force full-window `SPAWN_NEW` export while preserving prior valid `<report>`s from `bound_subagent_id` until `bind`.
-- **Clock-free expected-cost right-brain rotation**: After the bound child has returned a `<report>` since the last sync (`last_bound_report_step > last_synced_step`), `sync` inspects the sibling child log via a fail-open reverse EOF byte scan and flips `RESUME_EXISTING` to `SPAWN_NEW` only when `0.60 * C_old > 1.55 * C_new + 15,000` (with zero timestamps or wall-clock TTL). Missing, shallow, or unreadable child logs fall back cleanly to `RESUME_EXISTING`, and `--subagent-transcript` isolates non-Antigravity adapters or replay tests.
+- **Clock-free expected-cost `Execution Subagent` rotation**: After the bound child has returned a `<report>` since the last sync (`last_bound_report_step > last_synced_step`), `sync` inspects the sibling child log via a fail-open reverse EOF byte scan and flips `RESUME_EXISTING` to `SPAWN_NEW` only when `0.60 * C_old > 1.55 * C_new + 15,000` (with zero timestamps or wall-clock TTL). Missing, shallow, or unreadable child logs fall back cleanly to `RESUME_EXISTING`, and `--subagent-transcript` isolates non-Antigravity adapters or replay tests.
 - If `sync` outputs `{"action": "SKIP_SUBAGENT_SESSION", ...}`, halt orchestration immediately and act as single-phase.
 - Only when `sync` or `reset` exits `1` with stderr starting `error: corrupt state.json:` or `error: invalid state.json:`, run `reset --purge` once before retrying `sync` (never purge on bad CLI arguments or exit `2` I/O errors).
 
@@ -52,14 +52,14 @@ py -3 "<SkillDir>/scripts/sync_memory.py" bind --state-dir "<ArtifactDir>/scratc
 py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scratch/orchestrator" [--purge]
 ```
 - Default `reset` retires any active non-null `bound_subagent_id` in `retired_subagent_max_step` while preserving `execution_subagent_ids` and clearing active binding/watermarks.
-- Pass `--purge` strictly when `sync` or `reset` exits `1` with stderr starting `error: corrupt state.json:` or `error: invalid state.json:`.
+- Pass `--purge` strictly under the corrupt/invalid `state.json` exit `1` rule in Window Sync above.
 
 ---
 
 ## 3. Antigravity Dispatch & Continuation Handshakes
 
 ### On `SPAWN_NEW`
-1. Author a **complete, self-contained five-section `<plan>...</plan>`** in `Trunk Session` (keep it compact and self-contained without assuming prior child tool-call memory or duplicating verbose prose/code blocks already present in `pages/page_*.md`).
+1. Author a **complete, self-contained five-section `<plan>...</plan>`** in `Trunk Session` (because prior `<plan>` bodies are never exported to `pages/page_*.md`, restate every remaining step with exact paths, verification commands, and `Re-plan if:`, while omitting verbose prose/code blocks already in `pages/page_*.md` or a named artifact).
 2. Call `invoke_subagent`:
    - `TypeName="self"`
    - `Role="Orchestrator Execution Subagent"`
@@ -83,7 +83,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
      ...complete 5-section plan...
      </plan>
      ```
-3. Immediately call `sync_memory.py bind --subagent-id <conversationId>` using the returned `conversationId` (if `bind` returns `"retired_subagent_id"`, batch `manage_subagents(Action="kill", ConversationIds=[<retired_subagent_id>])` into the next tool-call turn such as the next `[plan review]` Tier-1 check; never spend a dedicated extra post-`bind` `Trunk Session` LLM turn), then end the turn and await reactive `<SYSTEM_MESSAGE>` wakeup without polling `manage_subagents("list")`.
+3. Immediately call `sync_memory.py bind --subagent-id <conversationId>` using the returned `conversationId` (if `bind` returns `"retired_subagent_id"`, batch `manage_subagents(Action="kill", ConversationIds=[<retired_subagent_id>])` into the next tool-call turn such as the next `[plan review]` Tier-1 check—safe only when the retired child has already reported, otherwise apply §4 first; never spend a dedicated extra post-`bind` `Trunk Session` LLM turn), then end the turn and await reactive `<SYSTEM_MESSAGE>` wakeup without polling `manage_subagents("list")`.
 
 ### On `RESUME_EXISTING`
 1. Whenever live subagent status may be uncertain (e.g., resuming after another native subagent or background wakeup), call `manage_subagents(Action="list")` first so a bound `Execution Subagent` in `"running"` or `"waiting_for_dependents"` (actively running or reactively awaiting a background command, timer, or child subagent) is never double-messaged.
@@ -96,7 +96,7 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
    Read any new Living Memory Window delta pages below in order via `read_file` (if none listed, delta is empty):
    <ordered page paths if delta_empty == false, else "(delta empty)">
 
-   Execution reminder: carry out the latest `<plan>` below in order without re-planning; allow at most 1 retry per step ("failed twice" = stop); self-count ~30 execution turns (a still-running command or child subagent is never a safe boundary); stop plan work immediately, terminate any still-running started command or child subagent, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands and child subagents before reporting (awaiting an active command or child subagent is not an exit—await background completion reactively without polling or timers); deliver every 5-part `<report>...</report>` back via `send_message` (never plain text alone); and re-read `<SkillDir>/references/execution-protocol.md` once after each `# Resuming from a compaction` summary if not yet re-read since that summary.
+   Execution reminder: execute the `<plan>` below in order without re-planning; max 1 retry/step ("failed twice" = stop); self-count ~30 turns (still-running work is never a safe boundary); stop plan work, terminate any still-running command or child subagent, and hand back on any of the 5 Official triggers (`Re-plan if:` included); await terminal states of started commands and child subagents reactively without polling before reporting (waiting is not an exit); return every 5-part `<report>...</report>` via `send_message` (never plain text alone); and re-read `<SkillDir>/references/execution-protocol.md` once after each `# Resuming from a compaction` summary if not yet re-read since that summary.
 
    <plan>
    ...settled 1–2 sentence follow-up or full revised plan...
@@ -108,11 +108,11 @@ py -3 "<SkillDir>/scripts/sync_memory.py" reset --state-dir "<ArtifactDir>/scrat
 
 ## 4. Recovery & Model Quota Errors on Antigravity
 
-- **Mid-flight user redirect or cancel**: Inspect `manage_subagents(Action="list")`; whenever `bound_subagent_id` has not yet returned `<report>` (including `"running"` or `"waiting_for_dependents"`), call `manage_subagents(Action="kill", ConversationIds=[<id>])` (which cascades to nested descendants, cancels armed background tasks/timers, and deletes child `branch` workspaces) **before** `sync_memory.py reset` (and then `sync` when re-dispatching). Inspect `git status`/`git diff` (or workspace files directly outside git) and re-plan cleanly.
+- **Mid-flight user redirect or cancel**: Inspect `manage_subagents(Action="list")`; whenever `bound_subagent_id` has not yet returned `<report>` (including `"running"` or `"waiting_for_dependents"`), call `manage_subagents(Action="kill", ConversationIds=[<id>])` (which cascades to nested child subagent descendants, cancels armed background tasks/timers, and deletes child `branch` workspaces) **before** `sync_memory.py reset` (and then `sync` when re-dispatching). Inspect `git status`/`git diff` (or workspace files directly outside git) and re-plan cleanly.
 - **Additive user prompt while `bound_subagent_id` is `"running"` or `"waiting_for_dependents"`**: Yield to await active run completion, or `kill` + `reset` + re-plan cleanly—never nudge or double-message an active or reactively waiting subagent.
 - **Quota / API error check first (before any stall recovery or respawn)**: Whenever `bound_subagent_id` is `"idle"` or `"stopped"` without `<report>` (or fails on `send_message`), inspect `<parent of ArtifactDir>/<bound_subagent_id>/.system_generated/logs/transcript.jsonl` (if present) and workspace state first. If the child aborted on a quota, capacity, or API error, report clearly to the user and stop—**never silently switch `Model` and never respawn**.
-- **Stalled `"idle"` or `"stopped"` without `<report>` (no quota/API error)**: Because Antigravity natively reports `"waiting_for_dependents"` whenever a subagent has an unreturned background command, timer, or child subagent, an `"idle"` or `"stopped"` subagent without `<report>` has no pending async work. If `"idle"`, nudge once via `send_message` asking for `<report>`, or respawn cleanly via `manage_subagents(Action="kill", ConversationIds=[<id>]) -> sync --force-spawn --tier <resolved_static_tier> (full <plan>) -> invoke_subagent -> bind`. If `"stopped"`, respawn directly via `sync --force-spawn --tier <resolved_static_tier> (full <plan>) -> invoke_subagent -> bind` (preserving prior valid `<report>`s).
-- **Dead-ID `send_message` failure (no quota/API error)**: Run `sync --force-spawn --tier <resolved_static_tier> (full self-contained <plan>) -> invoke_subagent -> bind` in the same planning turn (preserving prior valid `<report>`s).
+- **Stalled `"idle"` or `"stopped"` without `<report>` (no quota/API error)**: If `"idle"`, nudge once via `send_message` asking for `<report>`, or respawn cleanly via `manage_subagents(Action="kill", ConversationIds=[<id>]) -> sync --force-spawn --tier <resolved_static_tier> (self-contained five-section <plan>) -> invoke_subagent -> bind`. If `"stopped"`, respawn directly via `sync --force-spawn --tier <resolved_static_tier> (self-contained five-section <plan>) -> invoke_subagent -> bind` (preserving prior valid `<report>`s).
+- **Dead-ID `send_message` failure (no quota/API error)**: Run `sync --force-spawn --tier <resolved_static_tier> (self-contained five-section <plan>) -> invoke_subagent -> bind` in the same planning turn (preserving prior valid `<report>`s).
 
 ---
 

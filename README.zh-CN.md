@@ -52,7 +52,7 @@ orchestrator-tier: pro
 - [skills/orchestrator/SKILL.md](skills/orchestrator/SKILL.md) — `Trunk Session` 控制循环、有序准入闸门（Entry Gate）、三路入站路由、Official Part 2 规划与 Part 7 `[plan review]`。
 - [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — 与宿主解耦的单阶段 `Execution Subagent` 执行协议（Official Parts 4、5 及适配的 Part 6）。
 - [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 宿主绑定（`invoke_subagent`、`send_message`、`manage_subagents`、同级 `logAbsoluteUri`、`sync_memory.py` CLI）及面向 Claude Code / Codex 的预留未来客户端适配接缝。
-- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — 零第三方依赖的 Python 3 标准库同步 CLI（`check-origin`、`sync`、`bind`、`reset`）。
+- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — 零第三方依赖的 Python 3 标准库同步 CLI（`check-origin`、`sync`、`bind`、`reset`）以及无时钟期望成本 `Execution Subagent` 轮换。
 
 ---
 

@@ -52,7 +52,7 @@ orchestrator-tier: pro
 - [skills/orchestrator/SKILL.md](skills/orchestrator/SKILL.md) — `Trunk Session` control loop, ordered Entry Gate, Three-Way Routing, Official Part 2 Planning & Part 7 `[plan review]`.
 - [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — Harness-neutral single-phase `Execution Subagent` rules (Official Parts 4, 5, and adapted Part 6).
 - [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 bindings (`invoke_subagent`, `send_message`, `manage_subagents`, sibling `logAbsoluteUri`, `sync_memory.py` CLI) and reserved Future Client Adapter Seam for Claude Code / Codex when targeted.
-- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — Zero-dependency Python 3 standard-library CLI (`check-origin`, `sync`, `bind`, `reset`).
+- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — Zero-dependency Python 3 standard-library CLI (`check-origin`, `sync`, `bind`, `reset`), and clock-free expected-cost `Execution Subagent` rotation.
 
 ---
 

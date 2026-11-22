@@ -17,5 +17,5 @@ A fresh-context subset within the orthogonal native subagent layer (such as blin
 _Avoid_: Execution Subagent, Right Brain
 
 **Living Memory Window**:
-The active, compaction-bounded span of canonical `Trunk Session` dialogue, compaction summaries, and prior execution `<report>`s currently visible to the Trunk model, inherited on `Execution Subagent` creation and extended incrementally until the next Trunk compaction.
+The active, compaction-bounded span of canonical `Trunk Session` dialogue, compaction summaries, and prior execution `<report>`s currently visible to the Trunk model, inherited on `Execution Subagent` creation and extended incrementally until the next `Execution Subagent` rotation (Trunk compaction, rewind, tier change, respawn, or expected-cost rotation).
 _Avoid_: Full raw history, hand-written summary

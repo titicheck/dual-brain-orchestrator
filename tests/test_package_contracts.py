@@ -93,7 +93,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("skills", data)
         self.assertLessEqual(set(data.keys()), {"name", "version", "description", "repository"})
         self.assertTrue(SKILL_MD.is_file(), "skills/orchestrator/SKILL.md must exist")
-        self.assertEqual(data.get("version"), "1.2.0")
+        self.assertEqual(data.get("version"), "1.2.1")
         self.assertIsInstance(data.get("description"), str)
         self.assertTrue(data["description"].strip())
 
@@ -484,14 +484,65 @@ class PackageContractTests(unittest.TestCase):
             resume_section.index("# resuming from a compaction"),
         )
 
+        resume_match = re.search(
+            r"### On `RESUME_EXISTING`.*?```text\r?\n(.*?)\r?\n\s*```",
+            harnesses_text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(resume_match, "RESUME_EXISTING fenced envelope not found")
+        sample_page = (
+            "/users/example-user/.gemini/antigravity/brain/"
+            "01234567-89ab-cdef-0123-456789abcdef/scratch/orchestrator/pages/page_001.md"
+        )
+        resume_envelope = (
+            textwrap.dedent(resume_match.group(1))
+            .replace(
+                "<SkillDir>",
+                "/users/example-user/.gemini/config/plugins/orchestrator/skills/orchestrator-dir",
+            )
+            .replace(
+                '<ordered page paths if delta_empty == false, else "(delta empty)">',
+                sample_page,
+            )
+        )
+        resume_marker = "(never plain text alone)"
+        self.assertIn(resume_marker, resume_envelope)
+        resume_offset = len(
+            resume_envelope[
+                : resume_envelope.index(resume_marker) + len(resume_marker)
+            ].encode("utf-8")
+        )
+        self.assertLess(
+            resume_offset,
+            1100,
+            f"RESUME_EXISTING (never plain text alone) byte offset {resume_offset} >= 1100",
+        )
+
     def test_v120_cost_rotation_contracts(self) -> None:
-        skill_lower = SKILL_MD.read_text(encoding="utf-8").lower()
+        skill_text = SKILL_MD.read_text(encoding="utf-8")
+        skill_lower = skill_text.lower()
         self.assertIn("skip redundant", skill_lower)
         self.assertIn("cost-rotation", skill_lower)
+        self.assertRegex(
+            skill_lower,
+            re.compile(r"prior `<plan>` bodies[^\n]*never exported to `pages/page_\*\.md`"),
+        )
 
         harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
         self.assertIn("--subagent-transcript", harnesses_text)
         self.assertIn("retired_subagent_id", harnesses_text)
+        spawn_section = harnesses_text.split("### On `SPAWN_NEW`", 1)[1].split("### On `RESUME_EXISTING`", 1)[0]
+        self.assertIn('manage_subagents(Action="kill", ConversationIds=[<retired_subagent_id>])', spawn_section)
+        self.assertIn("never spend a dedicated extra post-`bind`", spawn_section)
+        self.assertIn("otherwise apply §4 first", spawn_section)
+
+        sync_src = (SCRIPTS_DIR / "sync_memory.py").read_text(encoding="utf-8")
+        self.assertNotIn("import datetime", sync_src)
+        self.assertNotIn("from datetime", sync_src)
+        self.assertNotIn("time.time", sync_src)
+        self.assertEqual(sync_memory.COST_KEEP_MULT, 0.60)
+        self.assertEqual(sync_memory.COST_SPAWN_MULT, 1.55)
+        self.assertEqual(sync_memory.COST_SWITCH_FIXED_TOKENS, 15_000.0)
 
 
 if __name__ == "__main__":

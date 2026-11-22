@@ -443,9 +443,6 @@ def classify_origin(folded: dict[int, tuple[int, dict[str, Any]]]) -> str:
     return "TRUNK"
 
 
-classify_step_zero = classify_origin
-
-
 def compute_digest(
     folded: dict[int, tuple[int, dict[str, Any]]],
     window_start: int,
@@ -714,12 +711,9 @@ def should_rotate_for_cost(child_bytes_since_ckpt: int, est_lmw_bytes: int) -> b
 def _find_last_bound_report_step(
     folded: dict[int, tuple[int, dict[str, Any]]],
     window_start: int,
-    max_folded_step: int,
     bound_id: str,
 ) -> int:
     for step_idx in sorted(folded, reverse=True):
-        if step_idx > max_folded_step:
-            continue
         if step_idx < window_start:
             break
         rec = folded[step_idx][1]
@@ -797,52 +791,36 @@ def _measure_child_bytes_since_checkpoint(child_path: pathlib.Path) -> int | Non
             file_size = fh.tell()
             if file_size <= 0:
                 return None
-            effective_eof: int | None = None
+            effective_eof = file_size
             eof_step_index: int | None = None
             is_first = True
-            for line_start, line_end, raw_line in _iter_lines_reverse(fh, file_size):
-                if is_first:
-                    is_first = False
-                    if line_start == file_size and raw_line == b"":
-                        effective_eof = file_size
-                        continue
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        effective_eof = line_start
-                        continue
-                    try:
-                        rec = json.loads(stripped.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        effective_eof = line_start
-                        continue
-                    if (
-                        not isinstance(rec, dict)
-                        or not _is_strict_int(rec.get("step_index"))
-                        or rec["step_index"] < 0
-                    ):
-                        effective_eof = line_start
-                        continue
-                    effective_eof = file_size
-                    eof_step_index = rec["step_index"]
-                    if rec.get("type") == "CHECKPOINT":
-                        return effective_eof - line_start
-                    continue
-
+            for line_start, _line_end, raw_line in _iter_lines_reverse(fh, file_size):
+                was_first = is_first
+                is_first = False
                 stripped = raw_line.strip()
                 if not stripped:
+                    if was_first:
+                        effective_eof = line_start
                     continue
 
                 if eof_step_index is None:
-                    rec = json.loads(stripped.decode("utf-8"))
+                    try:
+                        rec = json.loads(stripped.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        if was_first:
+                            effective_eof = line_start
+                            continue
+                        return None
                     if (
                         not isinstance(rec, dict)
                         or not _is_strict_int(rec.get("step_index"))
                         or rec["step_index"] < 0
                     ):
+                        if was_first:
+                            effective_eof = line_start
+                            continue
                         return None
                     eof_step_index = rec["step_index"]
-                    if effective_eof is None:
-                        effective_eof = line_end
                     if rec.get("type") == "CHECKPOINT":
                         return effective_eof - line_start
                     continue
@@ -856,9 +834,7 @@ def _measure_child_bytes_since_checkpoint(child_path: pathlib.Path) -> int | Non
                 if _is_strict_int(step_idx) and 0 <= step_idx <= eof_step_index:
                     return effective_eof - line_start
 
-            if eof_step_index is None or effective_eof is None:
-                return None
-            return effective_eof
+            return None if eof_step_index is None else effective_eof
 
     try:
         return _retry_on_permission_error(_scan)
@@ -1016,7 +992,6 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     turn1_rewind = (
         not base_need_spawn
-        and state["bound_subagent_id"] is not None
         and state["last_synced_step"] == -1
         and not turn1_bound_id_present(
             expanded, window_start, state["bound_subagent_id"]
@@ -1026,33 +1001,31 @@ def cmd_sync(args: argparse.Namespace) -> int:
     rendered_pages: list[str]
     lmw_bytes: int
 
-    if (
-        not need_spawn
-        and state["bound_subagent_id"] is not None
-        and state["last_synced_step"] >= 0
-    ):
-        delta_blocks = _extract_blocks(
-            expanded, state["last_synced_step"] + 1, None, state
-        )
+    if not need_spawn:
+        slice_start = max(window_start, state["last_synced_step"] + 1)
+        delta_blocks = _extract_blocks(expanded, slice_start, None, state)
         delta_pages = paginate_blocks(delta_blocks)
         delta_bytes = sum(len(p.encode("utf-8")) for p in delta_pages)
-        raw_lmw = state.get("lmw_bytes")
-        if _is_strict_int(raw_lmw) and raw_lmw >= 0:
-            base_lmw_bytes = raw_lmw
+        if state["last_synced_step"] < window_start:
+            base_lmw_bytes = 0
         else:
-            base_blocks = _extract_blocks(
-                folded, window_start, state["last_synced_step"], state
-            )
-            base_lmw_bytes = sum(
-                len(p.encode("utf-8")) for p in paginate_blocks(base_blocks)
-            )
+            raw_lmw = state.get("lmw_bytes")
+            if _is_strict_int(raw_lmw) and raw_lmw >= 0:
+                base_lmw_bytes = raw_lmw
+            else:
+                base_blocks = _extract_blocks(
+                    folded, window_start, state["last_synced_step"], state
+                )
+                base_lmw_bytes = sum(
+                    len(p.encode("utf-8")) for p in paginate_blocks(base_blocks)
+                )
         est_lmw_bytes = base_lmw_bytes + (
             max(0, delta_bytes - PAGE_HEADER_DELTA_ADJUST_BYTES)
             if base_lmw_bytes > 0 and delta_bytes > 0
             else delta_bytes
         )
         last_bound_report_step = _find_last_bound_report_step(
-            folded, window_start, max_folded_step, state["bound_subagent_id"]
+            folded, window_start, state["bound_subagent_id"]
         )
         if last_bound_report_step > state["last_synced_step"]:
             child_path = _resolve_subagent_transcript_path(
@@ -1069,22 +1042,25 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 child_bytes, est_lmw_bytes
             ):
                 need_spawn = True
-                expanded = expand_with_companion(
-                    folded,
-                    companion_path,
-                    window_start,
-                    allowed_types=_EXTRACTABLE_TYPES,
-                    expand_tool_calls=False,
-                )
-                blocks = _extract_blocks(expanded, window_start, None, state)
-                rendered_pages = paginate_blocks(blocks)
-                lmw_bytes = sum(len(p.encode("utf-8")) for p in rendered_pages)
+                if slice_start == window_start:
+                    rendered_pages = delta_pages
+                    lmw_bytes = delta_bytes
+                else:
+                    expanded = expand_with_companion(
+                        folded,
+                        companion_path,
+                        window_start,
+                        allowed_types=_EXTRACTABLE_TYPES,
+                        expand_tool_calls=False,
+                    )
+                    blocks = _extract_blocks(expanded, window_start, None, state)
+                    rendered_pages = paginate_blocks(blocks)
+                    lmw_bytes = sum(len(p.encode("utf-8")) for p in rendered_pages)
         if not need_spawn:
             rendered_pages = delta_pages
             lmw_bytes = est_lmw_bytes
     else:
-        slice_start = window_start if need_spawn else state["last_synced_step"] + 1
-        blocks = _extract_blocks(expanded, slice_start, None, state)
+        blocks = _extract_blocks(expanded, window_start, None, state)
         rendered_pages = paginate_blocks(blocks)
         lmw_bytes = sum(len(p.encode("utf-8")) for p in rendered_pages)
 
@@ -1148,6 +1124,8 @@ def cmd_bind(args: argparse.Namespace) -> int:
     state["prefix_digest"] = pending["prefix_digest"]
     if "lmw_bytes" in pending:
         state["lmw_bytes"] = pending["lmw_bytes"]
+    else:
+        state.pop("lmw_bytes", None)
     if subagent_id not in state["execution_subagent_ids"]:
         state["execution_subagent_ids"].append(subagent_id)
     state["retired_subagent_max_step"].pop(subagent_id, None)
