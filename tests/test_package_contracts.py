@@ -66,7 +66,23 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 class PackageContractTests(unittest.TestCase):
     def _extract_fenced_blocks(self, text: str) -> list[str]:
-        return re.findall(r"```(?:markdown|md|text)?\r?\n(.*?)\r?\n```", text, re.DOTALL)
+        blocks: list[str] = []
+        in_fence = False
+        lang = ""
+        buf: list[str] = []
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if not in_fence and stripped.startswith("```"):
+                in_fence = True
+                lang = stripped[3:].strip().lower()
+                buf = []
+            elif in_fence and line.strip() == "```":
+                in_fence = False
+                if lang in {"", "markdown", "md", "text"}:
+                    blocks.append("\n".join(buf))
+            elif in_fence:
+                buf.append(line)
+        return blocks
 
     def _extract_adoption_blocks(self, path: pathlib.Path, label: str) -> list[str]:
         text = path.read_text(encoding="utf-8")
@@ -93,7 +109,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("skills", data)
         self.assertLessEqual(set(data.keys()), {"name", "version", "description", "repository"})
         self.assertTrue(SKILL_MD.is_file(), "skills/orchestrator/SKILL.md must exist")
-        self.assertEqual(data.get("version"), "2.0.0")
+        self.assertEqual(data.get("version"), "2.0.1")
         self.assertIsInstance(data.get("description"), str)
         self.assertTrue(data["description"].strip())
 
@@ -481,6 +497,17 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("--force-spawn", skill_text)
         self.assertNotIn("--tier", skill_text)
 
+        planning_turn = skill_text.split("## `Trunk Session` Planning Turn", 1)[1].split(
+            "## Planner Review Gate", 1
+        )[0]
+        self.assertIn('manage_subagents(Action="list")', planning_turn)
+        self.assertIn("Then run `sync`", planning_turn)
+        self.assertLess(
+            planning_turn.index('manage_subagents(Action="list")'),
+            planning_turn.index("Then run `sync`"),
+            "P2-1 ordering: manage_subagents(Action=\"list\") must precede Then run `sync`",
+        )
+
         harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
         self.assertNotIn("RESUME_EXISTING", harnesses_text)
         self.assertNotIn("--force-spawn", harnesses_text)
@@ -488,6 +515,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("~30", harnesses_text)
         handshake = harnesses_text.split("## 3. Antigravity Dispatch Handshake", 1)[1].split("## 4. Recovery", 1)[0]
         self.assertIn('manage_subagents(Action="list")', handshake)
+        self.assertIn("before calling `sync`", handshake)
         self.assertIn("retired_subagent_id", handshake)
         self.assertIn('manage_subagents(Action="kill", ConversationIds=[<retired_subagent_id>])', handshake)
         self.assertIn("never spend a dedicated extra post-`bind`", handshake)

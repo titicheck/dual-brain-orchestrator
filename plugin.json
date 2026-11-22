@@ -1,6 +1,6 @@
 {
   "name": "orchestrator",
-  "version": "2.0.0",
-  "description": "Dual-phase Plan and Execute orchestration on Antigravity single-model sessions using native subagent offloading and lossless Living Memory Window synchronization.",
+  "version": "2.0.1",
+  "description": "Stateless Plan-and-Execute dual-model orchestration for Antigravity single-model sessions—pairing a planning Trunk Session with one-shot Execution Subagents via lossless compaction-bounded Living Memory Window snapshots.",
   "repository": "https://github.com/titicheck/dual-brain-orchestrator"
 }

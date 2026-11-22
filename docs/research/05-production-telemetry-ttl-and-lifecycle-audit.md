@@ -90,7 +90,7 @@ Tracked in [Ticket 07](../../.scratch/orchestrator-v1/issues/07-bidirectional-ex
 
 Tracked in [Ticket 08](../../.scratch/orchestrator-v1/issues/08-heavy-and-background-execution-delegation-gate.md):
 
-- Under V1's literal adoption of single-thread Official Part 2.4 (`observational run_command builds, tests, or queries`) and Part 7 (`run observational commands if needed to check`), `Trunk Session` launched `run_r_chain_36y_offline_bench.py` directly (using `WaitMsBeforeAsync: 500`, under Antigravity's `10000 ms` synchronous cap) inside four Route 1 `[plan review]` turns—`Trunk Session` steps `268` (`00:57:15Z`, matching child `1276`), `318` (`03:03:27Z`, matching child `1298`), `347..351` (`04:40:26Z` `git show --stat d7b2fa1` after child `1339`, then `04:40:59Z` benchmark launch at `351`), and `378` (`06:10:03Z`, matching child `1362`)—plus memory probes (`diag_m202610.py`, `diag_4m_pid_rss.py`) in separate post-failure turns (`steps 273, 326, 331`).
+- Under V1's literal adoption of single-thread Official Part 2.4 (`observational run_command builds, tests, or queries`) and Part 7 (`run observational commands if needed to check`), `Trunk Session` launched `offline_bench.py` directly (using `WaitMsBeforeAsync: 500`, under Antigravity's `10000 ms` synchronous cap) inside four Route 1 `[plan review]` turns—`Trunk Session` steps `268` (`00:57:15Z`, matching child `1276`), `318` (`03:03:27Z`, matching child `1298`), `347..351` (`04:40:26Z` `git show --stat d7b2fa1` after child `1339`, then `04:40:59Z` benchmark launch at `351`), and `378` (`06:10:03Z`, matching child `1362`)—plus memory probes (`diag_memory_probe.py`, `diag_pid_rss.py`) in separate post-failure turns (`steps 273, 326, 331`).
 - Antigravity delivers completion/status wakeups for a background OS process only to the session that started it. Between `04:31` and `12:40 +08:00`, these launches produced `7` post-TTL (`> 300s`) cold-cache `Trunk Session` wakeups (including benchmark completion/failure wakeups after `~56m`, `~63m`, and `~78m`), hitting `cache_read_tokens = 0` every time (`$1.09–$1.67` each, `$9.83` total = `35.6%` of trunk spend) and appending `~90k` polling/tool tokens into `ctx_tool_results_tokens` (`177.8k` final, `41.8%` of `425.3k` trunk context).
 - **Same-session natural control (`2026-11-19T23:37Z` to `2026-11-20T00:57Z`, i.e., `07:37–08:57 +08:00`, child `2581ba32` steps `1222..1276`, prior to trunk step `268`):** An `80`-minute series of `~15-min` `pytest` suites and debugging edits (`task-1222` through `task-1268`) owned by `Execution Subagent`—running under completely unmodified `execution-protocol.md` and `harnesses.md`—produced `0` intermediate `Trunk Session` wakeups (`$0.00` mid-run trunk cost) and cost `$0.73` across `5` child checks (`98.5%–99.2%` cache hit, `92%` cheaper, with all logs quarantined in child context).
 
@@ -104,6 +104,9 @@ Tracked in [Ticket 08](../../.scratch/orchestrator-v1/issues/08-heavy-and-backgr
 ---
 
 ## 6. Triage Resolution & Counterfactual Backtests (2026-11-20)
+
+> [!NOTE]
+> **Superseded in `v2.0.0`:** This `2026-11-20` `v1.0.0` triage snapshot was later superseded by stateless `Always-New` rotation after the full `75`-dispatch right-brain memory probe and `314`-switch corpus evaluation recorded in [06-v2-stateless-benchmark-and-pareto-evaluation.md](06-v2-stateless-benchmark-and-pareto-evaluation.md).
 
 The table below preserves the counterfactual backtest comparison evaluated during triage alongside the converged `2026-11-20` decisions for [Ticket 07](../../.scratch/orchestrator-v1/issues/07-bidirectional-execution-subagent-lifecycle-rotation.md) and [Ticket 08](../../.scratch/orchestrator-v1/issues/08-heavy-and-background-execution-delegation-gate.md):
 
