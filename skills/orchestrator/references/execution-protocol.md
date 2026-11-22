@@ -49,7 +49,7 @@ Every exit—verified completion, ~30-turn checkpoint, or any of the five early 
 <report>
 1. Completed steps & workspace changes: <step numbers and concise file changes>
 2. Verifications run & observed output: <exact commands run, exit codes, and counts/output>
-3. Failures or missing assumptions (if any): <what failed twice or differed from the plan, plus options seen>
+3. Failures or missing assumptions (if any): <what failed twice or differed from the plan; on failure: exact command, exit code, <=15 verbatim lines (first error + final summary); options seen>
 4. Out-of-plan work or decisions discovered (if any): <unnamed files, scope questions, or choices needed>
 5. Remaining steps or next options: <none if complete and verified, or remaining plan items>
 </report>

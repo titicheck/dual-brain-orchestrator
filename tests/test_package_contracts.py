@@ -92,7 +92,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("skills", data)
         self.assertLessEqual(set(data.keys()), {"name", "version", "description", "repository"})
         self.assertTrue(SKILL_MD.is_file(), "skills/orchestrator/SKILL.md must exist")
-        self.assertEqual(data.get("version"), "1.1.3")
+        self.assertEqual(data.get("version"), "1.1.4")
         self.assertIsInstance(data.get("description"), str)
         self.assertTrue(data["description"].strip())
 
@@ -426,6 +426,37 @@ class PackageContractTests(unittest.TestCase):
         self.assertIn("last", skill_text.split("## Static Execution Tier Resolution", 1)[1].split("## `Trunk Session` Planning Turn", 1)[0].lower())
         self.assertIn("git log --stat", skill_text)
         self.assertLess(recovery_section.index("kill"), recovery_section.index("reset"))
+
+    def test_v114_compaction_reread_and_failure_excerpt_cap(self) -> None:
+        harnesses_text = HARNESSES_MD.read_text(encoding="utf-8")
+        spawn_section = (
+            harnesses_text.split("### On `SPAWN_NEW`", 1)[1]
+            .split("### On `RESUME_EXISTING`", 1)[0]
+            .lower()
+        )
+        resume_section = (
+            harnesses_text.split("### On `RESUME_EXISTING`", 1)[1]
+            .split("## 4. Recovery", 1)[0]
+            .lower()
+        )
+        for section_name, section in [
+            ("On SPAWN_NEW", spawn_section),
+            ("On RESUME_EXISTING", resume_section),
+        ]:
+            for marker in (
+                "<skilldir>/references/execution-protocol.md",
+                "# resuming from a compaction",
+                "if not yet re-read since that summary",
+            ):
+                self.assertIn(
+                    marker,
+                    section,
+                    f"{section_name} missing v1.1.4 compaction re-read clause: {marker}",
+                )
+
+        protocol_sec6 = EXECUTION_PROTOCOL_MD.read_text(encoding="utf-8").split("## 6.", 1)[1].lower()
+        self.assertIn("<=15 verbatim lines", protocol_sec6)
+        self.assertIn("first error + final summary", protocol_sec6)
 
 
 if __name__ == "__main__":
