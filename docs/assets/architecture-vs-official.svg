@@ -61,7 +61,7 @@
   <!-- Top Track: Trunk Session -->
   <rect x="508" y="130" width="412" height="60" rx="8" fill="#132338" stroke="#58a6ff" stroke-width="1.2"/>
   <text x="714" y="153" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#79c0ff">Trunk Session (Frontier Model | Plan Only | Zero Edits)</text>
-  <text x="714" y="174" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#c9d1d9">95.0% Warm KV-Cache  |  1 / 134 Compactions  |  0 Timeouts</text>
+  <text x="714" y="174" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#c9d1d9">95.0% Aggregate KV-Cache  |  1 / 134 Compactions  |  0 Timeouts</text>
 
   <!-- Middle Transfer Connectors -->
   <line x1="532" y1="194" x2="532" y2="238" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#arrow-blue)"/>

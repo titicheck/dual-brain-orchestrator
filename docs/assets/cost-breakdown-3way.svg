@@ -76,5 +76,5 @@
   <text x="40" y="338" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#56d364">Key takeaway: Hot-swap cache misses erase Flash savings at 2x ($169.8 vs $171.8); Dual-Brain holds Right Brain at ~127K avg ($19.7 -&gt; $23.0).</text>
 
   <!-- Footnote -->
-  <text x="28" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" fill="#8b949e">Plain Single-Model = exact token replay on Gemini 4 Neon (best-case 95% cache hit). Official &amp; Dual-Brain = measured Antigravity usage-monitor telemetry.</text>
+  <text x="28" y="370" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" fill="#8b949e">Plain Single-Model = token replay on Gemini 4 Neon (best-case 95% hit). Official &amp; Dual-Brain = real telemetry (incl. &gt;300s implicit TTL cold reloads).</text>
 </svg>
