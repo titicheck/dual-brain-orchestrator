@@ -21,18 +21,30 @@ Stateless Plan-and-Execute dual-model orchestration for **Antigravity single-mod
 
 ---
 
-## Dual-Brain vs Official Native Orchestrator
+## Performance & Cost Comparison
 
-![Benchmark Comparison](docs/assets/benchmark-vs-official.svg)
+![Same-Task 3-Way Cost Breakdown](docs/assets/cost-breakdown-3way.svg)
+
+*Plain Single-Model pays Frontier rates on every execution step, while Official Native loses nearly all Flash savings under `>200K` `2x` pricing (`$169.8` vs `$171.8`) due to cross-model switch cache misses; Dual-Brain isolates Left (`Trunk Session`: `$36.6` 1x / `$65.6` 2x) from Right (stateless `Flash`: `$19.7` 1x / `$23.0` 2x) to cut total spend by **43%-48%**.*
+
+![Dual-Brain vs Official Benchmark](docs/assets/benchmark-vs-official.svg)
 
 | Dimension | Dual-Brain Orchestrator | Official Native Orchestrator |
 |---|---|---|
-| **Quota & High-Context Cost Rate** | **-34%** multi-hour (`$66.2` vs `$100.8` 1x); **-45% to -84%** ongoing Turn 2+ follow-ups; **-47% to -54%** under `>200K` `2x` pricing | Pays `2x` high-context rates quickly (`$181.7` multi-hour / `$173.5` long debug at `2x`) |
+| **Quota & Cost Rate** | **-43% to -48%** same-task spend vs Plain Frontier; **-34%** multi-hour (`$66.2` vs `$100.8` 1x); **-45% to -84%** ongoing Turn 2+ follow-ups; **-47% to -54%** at `>200K` `2x` | **-7%** at `1x` (`$91.0`) and only **-1%** at `>200K` `2x` (`$169.8`) because switch cold misses wipe out cheaper Flash execution |
 | **KV-Cache & Context Control** | **95.0%** warm `Trunk Session` cache hit; **~127K** avg stateless execution context (`0%` `>200K` in live `v2.0.1`) | **89.2%** session cache hit; **69.7%-75.1%** uncached tokens on cross-model switch; **264K** avg context (`65%` `>200K`) |
 | **Speed & Stream Stability** | **1 / 134** compactions & **0** timeouts (**15-25 min / 1k steps** faster); `3.9s` cold subagent boot | Compacts every **44-58** steps (**69-89s** freeze each) with **31** observed stream retries/timeouts |
 | **Mutual Plan / Execute Checking** | Fresh stateless `Execution Subagent` has zero planning confirmation bias and verifies `<plan>` assumptions against live files/tests before editing; `Trunk Session` gates every `<report>` as untrusted data | Same-thread execution inherits planning bias directly inside one shared context |
-| **Tier Control & Cross-Client Seam** | Static `orchestrator-tier:` lock (`flash` / `pro` / `flash_lite` / `inherit`) with per-project override; stateless worker seam designed for Claude Code (`Agent`) & Codex (`spawn_agent`) | Fixed host-managed model pairing with no per-repo static tier rule |
-| **Honest Trade-Offs** | No inline child diffs on main chat canvas, no mid-flight soft `[plan review due]` interrupts, no persistent dev servers outliving a dispatch, and `~$0.05` fixed overhead on brand-new 1-2 line edits | Better fit for standalone `< 50`-step one-shot sprints or 1-2 line first-turn edits needing live inline diffs |
+| **Static Tier Lock & Architecture** | Static `orchestrator-tier:` lock (`flash` / `pro` / `flash_lite` / `inherit`) with per-project override; stateless worker seam ready for future cross-client adapters | Fixed host-managed model pairing with no per-repo static tier rule |
+
+---
+
+## Limitations & Current Boundaries
+
+- **Google Backend `~300s` (5-Minute) Implicit KV-Cache TTL:** Server-side implicit KV-cache stays near-guaranteed (`~99%`) only within `~60s`, drops past **`~300s` (5 minutes)** into opportunistic LRU (`~50%` at `5-10 min`, `~35%-41%` at `10-30 min`), and hard-expires (`< 4%`) past `30 min`. Long execution waves (`> 5 min`) or breaks across pauses trigger a cold prefill when `Trunk Session` wakes up (tip: run `/compact` before long breaks or between major milestones to cut cold-reload spend by `~90%`; DIY keepalive heartbeats are intentionally rejected as net-negative).
+- **Antigravity-Only Today (No Codex / Claude Code Adapter Yet):** Currently targets Antigravity exclusively (`invoke_subagent`, `manage_subagents`, `transcript.jsonl`). Adapters for **Codex** (`spawn_agent`), **Claude Code** (`Agent`), and other agent harnesses are **not yet implemented** (the client boundary is isolated in [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md)).
+- **Host Physical UX Ceilings:** No live inline child diffs on the main chat canvas during execution, no mid-flight soft `[plan review due]` interrupts without cancelling/waiting, and no persistent local daemons or dev servers outliving a single dispatch.
+- **First-Turn Empty-Session Micro-Edit Overhead:** On a brand-new empty session, a trivial `1-2`-line edit pays fixed `sync` + `SPAWN_NEW` + `[plan review]` overhead (`~$0.04-$0.07`, `+25-40s`); net savings begin immediately from Turn 2 onward once session context reaches `>= 2.8 KB`.
 
 ---
 
