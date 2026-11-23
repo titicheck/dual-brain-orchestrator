@@ -8,93 +8,72 @@ English | [简体中文](README.zh-CN.md)
 [![Antigravity Pure-Skill](https://img.shields.io/badge/antigravity-pure--skill-6E56CF.svg)](plugin.json)
 [![License MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Stateless Plan-and-Execute dual-model orchestration for **Antigravity single-model sessions**—pairing a warm planning `Trunk Session` with one-shot `Execution Subagents` via lossless compaction-bounded `Living Memory Window` snapshots (`N_max = 1`) for **34–84% lower quota** with zero runtime dependencies.
+Stateless Plan-and-Execute dual-model orchestration for **Antigravity single-model sessions** -- keeping a frontier `Trunk Session` warm in KV-cache while dispatching each execution wave to a fresh stateless `Execution Subagent` for **34%-84% lower quota** with zero runtime dependencies.
 
 ---
 
 ## How It Works
 
-Instead of hot-swapping two models inside one thread (which triggers `69.7%–75.1%` KV-cache misses on every hand-off), `orchestrator v2.0.x` keeps the planning `Trunk Session` warm on your frontier model and spawns a fresh, stateless `Execution Subagent` (`flash` or `pro`) for each execution wave:
+![Architecture Comparison](docs/assets/architecture-vs-official.svg)
 
-```mermaid
-flowchart LR
-    U["User"] <-->|"Requirements & Review"| T["Trunk Session (Plan Mode · Zero Edits)"]
-    T -->|"1. list -> 2. sync_memory.py (37-436 ms)"| LMW["Living Memory Window Snapshot (N_max = 1)"]
-    LMW -->|"read_file"| E["Stateless Execution Subagent (Single-Phase)"]
-    T -->|"3. invoke_subagent (flash / pro) + self-contained <plan>"| E
-    E -->|"4. <report> -> [plan review]"| T
-    T -.->|"Orthogonal Route 3"| I["Isolated Subagents (research / code-review / egm-*)"]
+- **Warm, Zero-Edit `Trunk Session`:** Investigates read-only, authors self-contained five-section `<plan>` dispatches, and verifies every `<report>` via lightweight Tier-1 footprint checks (`git status --short` / `git diff --stat`) without hot-swapping models in the same thread.
+- **Stateless `Execution Subagent` (`N_max = 1`):** Each dispatch boots fresh (`~3.9s`), reads the lossless active-epoch `Living Memory Window` snapshot (`37-436 ms`), and runs single-phase -- preventing multi-dispatch compaction truncation and cross-model KV-cache thrashing.
+
+---
+
+## Dual-Brain vs Official Native Orchestrator
+
+![Benchmark Comparison](docs/assets/benchmark-vs-official.svg)
+
+| Dimension | Dual-Brain Orchestrator | Official Native Orchestrator |
+|---|---|---|
+| **Quota & High-Context Cost Rate** | **-34%** multi-hour (`$66.2` vs `$100.8` 1x); **-45% to -84%** ongoing Turn 2+ follow-ups; **-47% to -54%** under `>200K` `2x` pricing | Pays `2x` high-context rates quickly (`$181.7` multi-hour / `$173.5` long debug at `2x`) |
+| **KV-Cache & Context Control** | **95.0%** warm `Trunk Session` cache hit; **~127K** avg stateless execution context (`0%` `>200K` in live `v2.0.1`) | **89.2%** session cache hit; **69.7%-75.1%** uncached tokens on cross-model switch; **264K** avg context (`65%` `>200K`) |
+| **Speed & Stream Stability** | **1 / 134** compactions & **0** timeouts (**15-25 min / 1k steps** faster); `3.9s` cold subagent boot | Compacts every **44-58** steps (**69-89s** freeze each) with **31** observed stream retries/timeouts |
+| **Mutual Plan / Execute Checking** | Fresh stateless `Execution Subagent` has zero planning confirmation bias and verifies `<plan>` assumptions against live files/tests before editing; `Trunk Session` gates every `<report>` as untrusted data | Same-thread execution inherits planning bias directly inside one shared context |
+| **Tier Control & Cross-Client Seam** | Static `orchestrator-tier:` lock (`flash` / `pro` / `flash_lite` / `inherit`) with per-project override; stateless worker seam designed for Claude Code (`Agent`) & Codex (`spawn_agent`) | Fixed host-managed model pairing with no per-repo static tier rule |
+| **Honest Trade-Offs** | No inline child diffs on main chat canvas, no mid-flight soft `[plan review due]` interrupts, no persistent dev servers outliving a dispatch, and `~$0.05` fixed overhead on brand-new 1-2 line edits | Better fit for standalone `< 50`-step one-shot sprints or 1-2 line first-turn edits needing live inline diffs |
+
+---
+
+## Global Compatibility & Coexistence
+
+Install once globally -- `orchestrator` activates only when safe and stays invisible everywhere else:
+
+| Session / Feature | Behavior When Enabled Globally | Interference / Overhead |
+|---|---|---|
+| **Official Native `Orchestrator`** (`Orchestrator (Neon)` / `Carbon` / `Argon` exposing `exit_plan_mode` / `enter_plan_mode`) | Unconditional auto-deference | **Zero** (`sync_memory.py` never runs; zero spawned workers) |
+| **`/swarm` Multi-Agent Workflows** | Silent auto-deference outside single-model sessions | **Zero** (coexists cleanly alongside `/swarm`) |
+| **Pure Q&A & Read-Only Code Reviews** | Answered directly inside `Trunk Session` | **Zero** CLI calls, zero disk writes, zero subagents |
+| **Other Native Subagents** (`research`, `code-review`, `egm-*` `Isolated Subagent`s, in-plan parallel slices) | Strictly orthogonal routing and execution | **Zero** `Living Memory Window` injection; completely untouched by `orchestrator-tier:` |
+
+---
+
+## Quick Start
+
+### 1. Install (Pure-Skill Package)
+
+```bash
+git clone https://github.com/titicheck/dual-brain-orchestrator.git ~/.gemini/config/plugins/orchestrator
 ```
 
-- **Zero-Edit `Trunk Session`:** Investigates read-only, authors self-contained five-section `<plan>` dispatches, and verifies `<report>` outcomes via lightweight Tier-1 footprint checks (`git status --short` / `git diff --stat`).
-- **Stateless `Always-New` Execution (`N_max = 1`):** Every dispatch reads the clean `[latest CHECKPOINT .. current Trunk step]` snapshot, preventing Antigravity's `10 KB / N` multi-dispatch compaction truncation (`~8.6–8.8 KB` of `<plan>` survives compaction intact).
+*(Or run `agy plugin install <path>`, copy `skills/orchestrator` into your skills directory, or simply type `/orchestrator` in any unconfigured chat to run on built-in default `flash`.)*
 
----
+### 2. Enable Globally (`< 1,000` bytes)
 
-## Benchmark Highlights
-
-Grounded in `281` production trajectories (`17,414` steps, `3,566.91M` tokens), `314` measured native model switches, and `75` historical dispatches in [docs/research/06-v2-stateless-benchmark-and-pareto-evaluation.md](docs/research/06-v2-stateless-benchmark-and-pareto-evaluation.md):
-
-| Benchmark Dimension | Observed / Backtested Result | Comparison Baseline | Evidence Tag |
-|---|---|---|---|
-| **Multi-Hour Production Spend** (`L0-4`, `L0-3`) | **`$66.19`** (`L0-4`); **`-42.9%`** (`L0-3`, `1x`-aligned) | `$100.81` depth-matched Official `L0-2` | `[Measured Production Telemetry]` |
-| **KV-Cache Hit & Switch Misses** (`314` switches) | **`95.02%`** session hit (`L0-4`) | `89.22%` (`L0-2`); Official hits `69.7%–75.1%` uncached switches | `[Measured Production Telemetry]` |
-| **Compactions & Stream Stability** | **`1 / 134`** compactions; **`0`** timeouts (`15–25 min/1k` faster) | `1 / 44–58` compactions (`68.7–89.0s` freeze); `31` `retryInfos` (`L0-2`) | `[Measured Production Telemetry]` |
-| **Ongoing Short Tweaks** (`LMW 20–100 KB, K = 1..12`) | **`45 / 45` grid wins** (**`-45%..-84%`** across `1x`/`N-2x`/`Sub-3x`) | Wins from Turn 2 whenever `LMW >= 2.8 KB` | `[Measured Switches + Sim-vs-Sim Backtest]` |
-| **Stateless `v2.0.x` vs `v1.1.x` / `v1.2.1`** (`75` dispatches) | **`4.27s`** boot (`+1.4 min` net over `42h` LLM); **`-$13.45`** `1x` / **`-$36.37`** `2x` | Beats `v1.2.1` `Pure q=0` (**`-$0.57`** `1x` / **`-$3.76`** `2x`) | `[Measured Boot + Sim-vs-Sim Backtest]` |
-| **Cross-Model Scaling** (`Codex` / `Claude`) | **`1.46x–2.85x`** larger stateless savings (`-$2.15..-$16.89`) | Higher cache-read ratio (`alpha = 0.10–0.25`) amplifies `Always-New` | `[Sim-vs-Sim Backtest]` |
-
-> [!NOTE]
-> **Honest Trade-Offs & Scope:**
-> - **First-Turn Empty-Session Micro-Edits (`S1`):** Paying `sync` + `SPAWN_NEW` + `[plan review]` adds `~$0.04–$0.07` and `+25–40s` on brand-new `1`–`2`-line edits; use plain single-model or Official Native for one-shot micro-edits.
-> - **Host Physical UX Ceilings (`Dim 10`):** No mid-flight soft `[plan review due]` interrupts, no inline child diffs on the main chat canvas, and no persistent dev servers outliving a dispatch; see [.out-of-scope/host-physical-ux-and-runtime-ceilings.md](.out-of-scope/host-physical-ux-and-runtime-ceilings.md).
-> - **Live Validation Status:** `v2.0.x` awaits final live multi-hour production telemetry (`L0-5`) against 3 objective rollback criteria anchored to tagged rollback baseline `v1.2.1` (`1511ee5`) in [Ticket 13](.scratch/orchestrator-v1/issues/13-v113-empirical-watch-and-residual-boundaries.md).
-
----
-
-## When to Use What
-
-| Mode | Best Fit | Why |
-|---|---|---|
-| **`orchestrator v2.0.x` (`flash` / `pro`)** | `>= 60`-step features, high-context UI branches (`S2`), slow tests/builds (`S7`), greenfield/monoliths (`S6`, `S8a`, `S8b`), Turn-2+ follow-ups | Saves `34–84%` quota, keeps `Trunk Session` clean (`1/134` compactions), eliminates timeouts; flip to `orchestrator-tier: pro` on coupled monoliths (`S8b`) |
-| **Official Native `Orchestrator (Neon)`** | `< 50`-step settled sprints (`S5`), medium CLI setup needing inline diffs & soft `[plan review due]` | `3–4 min` faster on `< 50`-step standalone tasks and exposes host-native write-refusal & inline diffs |
-| **Plain Single-Model (`Neon` / `Opus`)** | `S1` Q&A, `1`–`2`-line first-turn edits, `15–60s` interactive scripts, persistent local daemons | Zero orchestration latency/cost overhead and keeps live stderr & persistent processes attached |
-| **`/swarm` + `orchestrator` Hybrid** | Cross-family adversarial reviews, dual-repo meta-engineering (`S9`) | Combines multi-model `/swarm` deliberation with isolated `Execution Subagent` implementation |
-
----
-
-## Quick Start & Shared Rule Adoption
-
-### Installation (Pure-Skill Package)
-
-`orchestrator` ships **only** a root [plugin.json](plugin.json) and the self-contained skill under [skills/orchestrator/](skills/orchestrator/SKILL.md)—with zero bundled `rules/`, startup hooks, persistent sidecars, or non-Antigravity manifest directories in V1.
-
-- **As an Antigravity Pure-Skill Plugin:** Clone directly into your Antigravity plugins directory (`git clone https://github.com/titicheck/dual-brain-orchestrator.git ~/.gemini/config/plugins/orchestrator`) or run `agy plugin install <path>`.
-- **As a Standalone Skill:** Symlink or copy `skills/orchestrator` into your Antigravity skills folder.
-- **Zero-Config Chat Invocation:** Type `/orchestrator` directly in any unconfigured Antigravity chat bar to run the exact same unified workflow on built-in default `flash`.
-
-### Canonical Rule Adoption Snippet (`< 1,000` bytes)
-
-Add this snippet once in your shared engineering library `AGENTS.md` (or `~/.gemini/GEMINI.md`); everyday projects importing the shared library need **zero** `orchestrator`-specific entries:
+Add this snippet once to your shared `AGENTS.md` or `~/.gemini/GEMINI.md` (individual projects need zero configuration):
 
 ```markdown
 ## Orchestrator
 
-Load `orchestrator` (`SKILL.md`) only in top-level human-originated (including post-compaction) single-model sessions—without exact lowercase `exit_plan_mode`/`enter_plan_mode` and outside `/swarm`—when planning or executing tasks that modify files, state, or external side effects, or when handling a bound `Execution Subagent` report. Lock the bound `Execution Subagent` tier strictly to static `orchestrator-tier:` rules (conversational model requests never override it; override per project in workspace `AGENTS.md`).
+Load `orchestrator` (`SKILL.md`) only in top-level human-originated (including post-compaction) single-model sessions--without exact lowercase `exit_plan_mode`/`enter_plan_mode` and outside `/swarm`--when planning or executing tasks that modify files, state, or external side effects, or when handling a bound `Execution Subagent` report. Lock the bound `Execution Subagent` tier strictly to static `orchestrator-tier:` rules (conversational model requests never override it; override per project in workspace `AGENTS.md`).
 
 orchestrator-tier: flash
 ```
 
-### Static Tier Scope Precedence (`orchestrator-tier:`)
+### 3. Per-Project Tier Override (Optional)
 
-Execution tier accepts only `flash`, `pro`, `flash_lite`, or `inherit` and resolves strictly from static rules in descending specificity (conversational prompts never change the tier):
-
-1. Workspace-local `AGENTS.md` / `GEMINI.md`
-2. Direct global `~/.gemini/GEMINI.md`
-3. `@[...]`-imported shared engineering rules (such as `engineering-kit/rules/AGENTS.md`)
-4. Built-in default `"flash"`
-
-To override one project only, add a single line to that project's `AGENTS.md` (if the same file includes shared rules via `@[...]`, place the override after the import line):
+Precedence (highest to lowest): workspace `AGENTS.md` / `GEMINI.md` > global `~/.gemini/GEMINI.md` > `@[...]`-imported shared rules > default `flash` (conversational requests never override it). To pin a complex repository to `pro`, add one line to its `AGENTS.md` (after any `@[...]` import):
 
 ```markdown
 orchestrator-tier: pro
@@ -102,39 +81,33 @@ orchestrator-tier: pro
 
 ---
 
-## Architecture (`v2.0.x`), Verification & Roadmap
+<details>
+<summary>Architecture, Automated Tests &amp; Live Verification (Seam 2B)</summary>
 
-### Package Map & Future Client Adapter Seam
+### Package Map
 
-- [skills/orchestrator/SKILL.md](skills/orchestrator/SKILL.md) — `Trunk Session` control loop, ordered Entry Gate, Three-Way Routing, Official Part 2 Planning & Part 7 `[plan review]`.
-- [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) — Harness-neutral single-phase `Execution Subagent` rules (Official Parts 4 and 5).
-- [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) — Antigravity V1 bindings (`invoke_subagent`, `manage_subagents`, sibling `logAbsoluteUri`, `sync_memory.py` CLI) and reserved Future Client Adapter Seam for Claude Code / Codex when targeted.
-- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) — Zero-dependency Python 3 standard-library CLI (`841` lines; `check-origin`, `sync`, `bind`, `reset`) exporting stateless `Always-New` active-epoch `Living Memory Window` snapshots (`N_max = 1`, `37–436 ms`).
+- [skills/orchestrator/SKILL.md](skills/orchestrator/SKILL.md) -- `Trunk Session` control loop, Entry Gate, Three-Way Routing, Planning & `[plan review]`.
+- [skills/orchestrator/references/execution-protocol.md](skills/orchestrator/references/execution-protocol.md) -- Harness-neutral single-phase `Execution Subagent` contract.
+- [skills/orchestrator/references/harnesses.md](skills/orchestrator/references/harnesses.md) -- Antigravity V1 bindings (`invoke_subagent`, `manage_subagents`, `sync_memory.py` CLI) & Future Client Adapter Seam (Claude Code / Codex).
+- [skills/orchestrator/scripts/sync_memory.py](skills/orchestrator/scripts/sync_memory.py) -- Zero-dependency Python 3 stdlib CLI (`841` lines; `check-origin`, `sync`, `bind`, `reset`; `37-436 ms`).
 
-### Automated Suites (`Seam 1` + `Seam 2A`)
+### Automated Tests
 
 ```powershell
 py -3 -m unittest discover -s tests -v
 ```
-*(Use `python3 -m unittest discover -s tests -v` on POSIX.)*
 
-### `Seam 2B` — Antigravity Live Smoke Verification & Native Comparison Checklist
+*(POSIX: `python3 -m unittest discover -s tests -v`.)*
 
-Run these 4 interactive Antigravity checks on V1 and compare side-by-side against Native `Orchestrator`:
+### `Seam 2B` -- Antigravity Live Smoke Verification Checklist
 
-1. **Unconditional Native Orchestrator Deference**: Inside an `Orchestrator (Carbon)` / `Orchestrator (Neon)` / `Orchestrator (Argon)` session exposing exact lowercase `exit_plan_mode` / `enter_plan_mode`, invoke a coding task and `/orchestrator ...`; confirm native same-thread hot-swap runs untouched with zero `sync_memory.py` calls or spawned `Execution Subagent`.
-2. **Non-Recursion, Post-Compaction Q&A, & Three-Way Routing**: Confirm child subagents (including nested `Execution Subagent` workers) and `[swarm]`/`[board]` workers stay single-phase across live and compacted sessions (`check-origin` fail-closed on `"SUBAGENT"` or `"UNKNOWN"`), pure Q&A turns post-compaction execute zero `sync_memory.py` calls or disk writes, non-bound native subagent `[Message]` replies stay on `Trunk Session`, and orphaned superseded `Execution Subagents` are ignored/killed.
-3. **Static Tier Lock & Continuity Across Approve-First / `[plan review]`**: Confirm shared-library adoption and unconfigured `/orchestrator` lock to `"flash"` (ignoring `"use pro"` in chat), adding `orchestrator-tier: pro` in workspace `AGENTS.md` takes effect immediately on the next stateless `Execution Subagent` dispatch, and Approve-First / mid-flight cancel / `[plan review]` continue smoothly without losing active state.
-4. **Orthogonal Native Subagents & In-Plan Child Delegation**: From a frontier single-model `Trunk Session` running `Execution Subagent` on `flash`, confirm read-only `Isolated Subagents` (`egm-*`, `research`, `code-review`) on `Trunk Session` and in-plan native child subagents inside `Execution Subagent` receive zero `Living Memory Window` injection, remain untouched by `orchestrator-tier:`, and obey native workspace/plugin/task tier rules.
+1. **Unconditional Native Deference**: In an `Orchestrator (Neon)` / `Carbon` / `Argon` session exposing exact lowercase `exit_plan_mode` / `enter_plan_mode`, confirm native same-thread hot-swap runs untouched with zero `sync_memory.py` calls or spawned `Execution Subagent`.
+2. **Non-Recursion, Post-Compaction Q&A & Routing**: Confirm `check-origin` keeps child subagents (`"SUBAGENT"` / `"UNKNOWN"`) single-phase, post-compaction pure Q&A executes zero CLI/disk writes, and non-bound subagent replies stay on `Trunk Session`.
+3. **Static Tier Lock & Continuity**: Confirm shared-rule adoption and `/orchestrator` lock to `"flash"`, workspace `orchestrator-tier: pro` applies on the next stateless dispatch, and Approve-First / cancel / `[plan review]` stay intact across compactions.
+4. **Orthogonal Native Subagents**: Confirm `Isolated Subagent`s (`research`, `code-review`, `egm-*`) and in-plan child subagents receive zero `Living Memory Window` injection and remain untouched by `orchestrator-tier:`.
 
-### Documentation & Engineering Archive
+### Documentation & License
 
-- [CHANGELOG.md](CHANGELOG.md) — Release history (`v1.0.0` through `v2.0.1`, noting `v1.2.1` `1511ee5` rollback anchor).
-- [GLOSSARY.md](GLOSSARY.md) — Canonical dual-brain terminology (`Trunk Session`, `Execution Subagent`, `Isolated Subagent`, `Living Memory Window`).
-- [docs/adr/](docs/adr/0001-unified-subagent-report-return-into-plan-review.md) — Architecture Decision Records (`ADR-0001` through `ADR-0007`).
-- [docs/research/](docs/research/06-v2-stateless-benchmark-and-pareto-evaluation.md) — Official baseline extraction (`01`), host primitives (`02`–`04`), KV-cache TTL audit (`05`), and `v2.0.x` Pareto benchmark (`06`).
+- [CHANGELOG.md](CHANGELOG.md) | [GLOSSARY.md](GLOSSARY.md) | [docs/adr/](docs/adr/0001-unified-subagent-report-return-into-plan-review.md) | [docs/research/](docs/research/06-v2-stateless-benchmark-and-pareto-evaluation.md) | [LICENSE](LICENSE)
 
-### Roadmap & Explicit Non-Goals
-
-- **Next:** Run live multi-hour `L0-5` production validation against [Ticket 13](.scratch/orchestrator-v1/issues/13-v113-empirical-watch-and-residual-boundaries.md) falsification metrics (`M1`–`M6`) and implement the Claude Code `Agent` / Codex `spawn_agent` adapter seam in [harnesses.md](skills/orchestrator/references/harnesses.md) §5.
-- **Explicit Non-Goals:** No `PreToolUse` lifecycle `hooks.json`, no scripted `run_workflow` carrier, no agent-level KV-cache keepalive heartbeats, and no `Trunk Session` micro-edit exemptions ([ADR-0006](docs/adr/0006-pareto-boundary-reject-lifecycle-hooks-and-workflow-carrier.md)).
+</details>

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-label="Architecture comparison: Official Native Orchestrator vs Dual-Brain Orchestrator">
+  <defs>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#8b949e"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <!-- Outer Dark-Slate Container -->
+  <rect x="1" y="1" width="958" height="398" rx="14" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+
+  <!-- Header -->
+  <text x="28" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19" font-weight="700" fill="#f0f6fc">Why Dual-Brain Beats Same-Thread Hot-Swapping</text>
+  <text x="28" y="59" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#8b949e">KV-cache isolation keeps planning warm while every execution runs in a clean stateless worker</text>
+
+  <!-- Left Panel: Official Native Orchestrator -->
+  <rect x="24" y="78" width="444" height="298" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.2"/>
+  <rect x="40" y="92" width="412" height="28" rx="6" fill="#3d1d20" stroke="#f85149" stroke-width="1"/>
+  <text x="246" y="110" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#ff7b72">OFFICIAL NATIVE ORCHESTRATOR  |  Same-Thread Hot-Swap</text>
+
+  <!-- Shared Thread Diagram -->
+  <rect x="40" y="132" width="412" height="84" rx="8" fill="#0d1117" stroke="#484f58" stroke-width="1" stroke-dasharray="4 3"/>
+  <rect x="52" y="144" width="102" height="34" rx="6" fill="#1f2937" stroke="#58a6ff" stroke-width="1"/>
+  <text x="103" y="165" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#79c0ff">Plan (Neon)</text>
+
+  <line x1="158" y1="161" x2="181" y2="161" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+
+  <rect x="187" y="144" width="118" height="34" rx="6" fill="#2d1f24" stroke="#f85149" stroke-width="1"/>
+  <text x="246" y="165" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#ff7b72">Exec (Hydrogen)</text>
+
+  <line x1="309" y1="161" x2="332" y2="161" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arrow-muted)"/>
+
+  <rect x="338" y="144" width="102" height="34" rx="6" fill="#1f2937" stroke="#58a6ff" stroke-width="1"/>
+  <text x="389" y="165" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#79c0ff">Plan (Neon)</text>
+
+  <text x="246" y="202" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" fill="#ff7b72">Model switch invalidates active KV-cache prefix</text>
+
+  <!-- 3 Issue Rows -->
+  <rect x="40" y="228" width="412" height="38" rx="6" fill="#1c1518" stroke="#30363d" stroke-width="1"/>
+  <rect x="40" y="228" width="4" height="38" rx="2" fill="#f85149"/>
+  <text x="56" y="251" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#e6edf3">69.7% - 75.1% KV-cache miss on every model switch</text>
+
+  <rect x="40" y="274" width="412" height="38" rx="6" fill="#1c1518" stroke="#30363d" stroke-width="1"/>
+  <rect x="40" y="274" width="4" height="38" rx="2" fill="#f85149"/>
+  <text x="56" y="297" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#e6edf3">Context bloats 260K+ -&gt; compaction freeze every 44-58 steps (69-89s)</text>
+
+  <rect x="40" y="320" width="412" height="38" rx="6" fill="#1c1518" stroke="#30363d" stroke-width="1"/>
+  <rect x="40" y="320" width="4" height="38" rx="2" fill="#f85149"/>
+  <text x="56" y="343" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#e6edf3">31 stream timeouts / retries observed in multi-hour runs</text>
+
+  <!-- Right Panel: Dual-Brain Orchestrator -->
+  <rect x="492" y="78" width="444" height="298" rx="12" fill="#161b22" stroke="#238636" stroke-width="1.2"/>
+  <rect x="508" y="92" width="412" height="28" rx="6" fill="#122d21" stroke="#3fb950" stroke-width="1"/>
+  <text x="714" y="110" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" fill="#56d364">DUAL-BRAIN ORCHESTRATOR  |  Stateless Isolation (N_max = 1)</text>
+
+  <!-- Top Track: Trunk Session -->
+  <rect x="508" y="130" width="412" height="60" rx="8" fill="#132338" stroke="#58a6ff" stroke-width="1.2"/>
+  <text x="714" y="153" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#79c0ff">Trunk Session (Frontier Model | Plan Only | Zero Edits)</text>
+  <text x="714" y="174" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#c9d1d9">95.0% Warm KV-Cache  |  1 / 134 Compactions  |  0 Timeouts</text>
+
+  <!-- Middle Transfer Connectors -->
+  <line x1="532" y1="194" x2="532" y2="238" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <text x="544" y="213" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#79c0ff">1. Living Memory Window (37-436 ms)</text>
+  <text x="544" y="229" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" fill="#8b949e">+ self-contained &lt;plan&gt;</text>
+
+  <line x1="776" y1="238" x2="776" y2="194" stroke="#3fb950" stroke-width="1.6" marker-end="url(#arrow-green)"/>
+  <text x="788" y="213" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#56d364">2. &lt;report&gt;</text>
+  <text x="788" y="229" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" fill="#8b949e">-&gt; Tier-1 Review</text>
+
+  <!-- Bottom Track: Execution Subagent -->
+  <rect x="508" y="244" width="412" height="60" rx="8" fill="#12281e" stroke="#3fb950" stroke-width="1.2"/>
+  <text x="714" y="267" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#56d364">Fresh Stateless Execution Subagent (flash / pro)</text>
+  <text x="714" y="288" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#c9d1d9">~127K Avg Context  |  0 Compactions  |  3.9s Cold Boot</text>
+
+  <!-- Orthogonal Subagents Pill -->
+  <rect x="508" y="320" width="412" height="38" rx="8" fill="#0d1117" stroke="#6e7681" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="714" y="343" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#8b949e">Orthogonal Subagents (research / code-review / egm-*) - Zero Interference</text>
+</svg>
