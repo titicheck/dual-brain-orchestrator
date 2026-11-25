@@ -117,6 +117,7 @@ class PackageContractTests(unittest.TestCase):
             "rules",
             "hooks",
             "hooks.json",
+            "mcp_config.json",
             ".claude-plugin",
             ".codex-plugin",
         ]
